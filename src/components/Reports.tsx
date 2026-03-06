@@ -66,7 +66,7 @@ export default function Reports() {
   const [yearlyData, setYearlyData] = useState<any[]>([]);
   const [inventoryValuation, setInventoryValuation] = useState<number>(0);
   const [loading, setLoading] = useState(true);
-  const [balanceSheet, setBalanceSheet] = useState<any>(null);
+  const [financialStatements, setFinancialStatements] = useState<any>(null);
   const [trialBalance, setTrialBalance] = useState<any[]>([]);
   const [cashFlowData, setCashFlowData] = useState<any>(null);
   const [multiColLedger, setMultiColLedger] = useState<{ columns: any[], data: any[] } | null>(null);
@@ -147,7 +147,7 @@ export default function Reports() {
         fetch("/api/receivable-aging").then(res => res.json()).then(setReceivableAging),
         fetch("/api/inventory-valuation").then(res => res.json()).then(data => setInventoryValuation(data.totalValue)),
         fetch("/api/yearly-summary").then(res => res.json()).then(setYearlyData),
-        fetch("/api/balance-sheet").then(res => res.json()).then(setBalanceSheet),
+        fetch("/api/financial-statements").then(res => res.json()).then(setFinancialStatements),
         fetch("/api/trial-balance").then(res => res.json()).then(setTrialBalance),
         fetch(`/api/tax-report?startDate=${startDate}&endDate=${endDate}`).then(res => res.json()).then(setTaxReport),
         fetch("/api/profit-distributions").then(res => res.json()).then(setProfitDistributions),
@@ -366,101 +366,76 @@ export default function Reports() {
   };
 
   const renderPLStatement = () => {
-    const totalSales = filteredOrders.reduce((acc, cur) => acc + cur.total, 0);
-    
-    const getAccountTotal = (accountId: string) => {
-      return filteredExpenses
-        .filter(e => e.account_id && e.account_id.startsWith(accountId))
-        .reduce((acc, cur) => acc + cur.amount, 0);
-    };
-
-    const operatingCost = getAccountTotal('5001');
-    const grossProfit = totalSales - operatingCost;
-    const sellingExpense = getAccountTotal('5101');
-    const adminExpense = getAccountTotal('5202');
-    const periodExpense = sellingExpense + adminExpense;
-    const operatingProfit = grossProfit - periodExpense;
+    if (!financialStatements) return <Skeleton className="h-96 w-full rounded-2xl" />;
+    const { profitLoss } = financialStatements;
 
     return (
       <div className="bg-white dark:bg-slate-900 p-10 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 max-w-4xl mx-auto transition-colors duration-300">
         <div className="text-center mb-10">
           <h2 className="text-2xl font-bold dark:text-slate-100 uppercase tracking-tight">利润表 (Income Statement)</h2>
-          <p className="text-slate-500 dark:text-slate-400 mt-2 font-mono">统计周期: {startDate} 至 {endDate}</p>
+          <p className="text-slate-500 dark:text-slate-400 mt-2 font-mono italic text-sm">注：基于会计科目余额生成</p>
         </div>
 
         <div className="space-y-4">
           <div className="flex justify-between items-center py-3 border-b border-slate-100 dark:border-slate-800">
-            <span className="text-base font-bold dark:text-slate-200">一、营业收入</span>
-            <span className="text-base font-mono font-bold text-indigo-600 dark:text-indigo-400">{formatCurrency(totalSales)}</span>
+            <span className="text-base font-bold dark:text-slate-200">一、营业收入 (Revenue)</span>
+            <span className="text-base font-mono font-bold text-indigo-600 dark:text-indigo-400">{formatCurrency(profitLoss.revenue)}</span>
           </div>
           <div className="flex justify-between items-center py-3 border-b border-slate-100 dark:border-slate-800">
-            <span className="pl-4 text-sm text-slate-500 dark:text-slate-400">减：营业成本</span>
-            <span className="text-sm font-mono text-rose-500">{formatCurrency(operatingCost)}</span>
+            <span className="pl-4 text-sm text-slate-500 dark:text-slate-400">减：营业成本 (Cost of Sales)</span>
+            <span className="text-sm font-mono text-rose-500">{formatCurrency(profitLoss.cost)}</span>
           </div>
           <div className="flex justify-between items-center py-3 font-bold border-b-2 border-slate-900 dark:border-slate-700">
-            <span className="text-base dark:text-slate-200">二、营业利润 (毛利)</span>
-            <span className="text-base font-mono text-indigo-600 dark:text-indigo-400">{formatCurrency(grossProfit)}</span>
+            <span className="text-base dark:text-slate-200">二、营业利润 (Gross Profit)</span>
+            <span className="text-base font-mono text-indigo-600 dark:text-indigo-400">{formatCurrency(profitLoss.grossProfit)}</span>
           </div>
           <div className="flex justify-between items-center py-3 border-b border-slate-100 dark:border-slate-800">
-            <span className="pl-4 text-sm text-slate-500 dark:text-slate-400">减：期间费用</span>
-            <span className="text-sm font-mono text-rose-500">{formatCurrency(periodExpense)}</span>
-          </div>
-          <div className="pl-8 space-y-2 text-xs text-slate-400">
-            <div className="flex justify-between">
-              <span>销售费用</span>
-              <span className="font-mono">{formatCurrency(sellingExpense)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>管理费用</span>
-              <span className="font-mono">{formatCurrency(adminExpense)}</span>
-            </div>
+            <span className="pl-4 text-sm text-slate-500 dark:text-slate-400">减：期间费用 (Operating Expenses)</span>
+            <span className="text-sm font-mono text-rose-500">{formatCurrency(profitLoss.expenses)}</span>
           </div>
           <div className="flex justify-between items-center py-4 font-black text-lg border-t-2 border-slate-900 dark:border-slate-700 mt-4 bg-slate-50 dark:bg-slate-800/30 px-4 rounded-lg">
-            <span className="dark:text-slate-100">三、营业利润</span>
+            <span className="dark:text-slate-100">三、本期净利润 (Net Profit)</span>
             <span className={cn(
               "font-mono",
-              operatingProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
-            )}>{formatCurrency(operatingProfit)}</span>
+              profitLoss.netProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+            )}>{formatCurrency(profitLoss.netProfit)}</span>
           </div>
         </div>
 
-        {/* DuPont Analysis */}
-        <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800">
-          <h3 className="text-lg font-bold mb-8 flex items-center text-slate-800 dark:text-slate-100">
-            <TrendingUp size={20} className="mr-2 text-emerald-600" />
-            杜邦财务分析 (DuPont Analysis)
-          </h3>
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="flex-1 text-center p-6 bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl border border-indigo-100 dark:border-indigo-800">
-              <div className="text-xs text-indigo-600 dark:text-indigo-400 font-bold mb-2">ROE (净资产收益率)</div>
-              <div className="text-4xl font-black text-indigo-700 dark:text-indigo-300 font-mono">{roe}%</div>
-            </div>
-            <div className="text-slate-400 font-black text-2xl">＝</div>
-            <div className="flex-1 text-center p-6 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
-              <div className="text-xs text-slate-500 font-bold mb-2">销售净利率</div>
-              <div className="text-2xl font-black text-slate-800 dark:text-slate-200 font-mono">
-                {totalIncome > 0 ? (((totalIncome - totalExpense) / totalIncome) * 100).toFixed(1) : "0"}%
+        {/* DuPont Analysis (基于专业核算) */}
+        {financialStatements.balanceSheet && (
+          <div className="mt-12 p-8 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700">
+            <h3 className="text-lg font-bold mb-8 flex items-center text-slate-800 dark:text-slate-100">
+              <TrendingUp size={20} className="mr-2 text-emerald-600" />
+              杜邦财务分析
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
+              <div className="p-4 bg-white dark:bg-slate-900 rounded-xl shadow-sm">
+                <div className="text-[10px] text-slate-400 font-bold mb-1 uppercase tracking-wider">销售净利率</div>
+                <div className="text-xl font-black text-emerald-600 dark:text-emerald-400 font-mono">
+                  {profitLoss.revenue > 0 ? ((profitLoss.netProfit / profitLoss.revenue) * 100).toFixed(2) : "0"}%
+                </div>
+              </div>
+              <div className="p-4 bg-white dark:bg-slate-900 rounded-xl shadow-sm">
+                <div className="text-[10px] text-slate-400 font-bold mb-1 uppercase tracking-wider">资产周转率</div>
+                <div className="text-xl font-black text-blue-600 dark:text-blue-400 font-mono">
+                  {financialStatements.balanceSheet.assets.total > 0 ? (profitLoss.revenue / financialStatements.balanceSheet.assets.total).toFixed(2) : "0"}
+                </div>
+              </div>
+              <div className="p-4 bg-white dark:bg-slate-900 rounded-xl shadow-sm">
+                <div className="text-[10px] text-slate-400 font-bold mb-1 uppercase tracking-wider">权益乘数</div>
+                <div className="text-xl font-black text-amber-600 dark:text-amber-400 font-mono">
+                  {financialStatements.balanceSheet.equity.total > 0 ? (financialStatements.balanceSheet.assets.total / financialStatements.balanceSheet.equity.total).toFixed(2) : "1"}
+                </div>
               </div>
             </div>
-            <div className="text-slate-400 font-black text-2xl">×</div>
-            <div className="flex-1 text-center p-6 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
-              <div className="text-xs text-slate-500 font-bold mb-2">资产周转率</div>
-              <div className="text-2xl font-black text-slate-800 dark:text-slate-200 font-mono">
-                {totalAssets > 0 ? (totalIncome / totalAssets).toFixed(2) : "0"}
-              </div>
-            </div>
-            <div className="text-slate-400 font-black text-2xl">×</div>
-            <div className="flex-1 text-center p-6 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
-              <div className="text-xs text-slate-500 font-bold mb-2">权益乘数</div>
-              <div className="text-2xl font-black text-slate-800 dark:text-slate-200 font-mono">
-                {balanceSheet.equity.total > 0 ? (totalAssets / balanceSheet.equity.total).toFixed(2) : "1"}
-              </div>
+            <div className="mt-6 p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl text-center">
+              <span className="text-sm font-bold text-indigo-700 dark:text-indigo-300">
+                ROE (净资产收益率) = {financialStatements.balanceSheet.equity.total > 0 ? ((profitLoss.netProfit / financialStatements.balanceSheet.equity.total) * 100).toFixed(2) : "0"}%
+              </span>
             </div>
           </div>
-          <div className="mt-6 text-[10px] text-slate-400 text-center leading-relaxed">
-            杜邦分析法通过拆解 ROE，揭示盈利能力（销售净利率）、营运能力（资产周转率）与财务杠杆（权益乘数）对股东回报的综合影响。
-          </div>
-        </div>
+        )}
       </div>
     );
   };
@@ -649,25 +624,14 @@ export default function Reports() {
   };
 
   const renderBalanceSheet = () => {
-    if (!balanceSheet) return <Skeleton className="h-96 w-full rounded-2xl" />;
-    const { current, previous } = balanceSheet;
-
-    const renderComparison = (currVal: number, prevVal: number) => {
-      if (prevVal === 0) return null;
-      const diff = currVal - prevVal;
-      const percent = (diff / Math.abs(prevVal)) * 100;
-      return (
-        <span className={cn("text-[10px] ml-2 font-bold", diff >= 0 ? "text-emerald-500" : "text-rose-500")}>
-          {diff >= 0 ? "+" : ""}{percent.toFixed(1)}%
-        </span>
-      );
-    };
+    if (!financialStatements) return <Skeleton className="h-96 w-full rounded-2xl" />;
+    const { balanceSheet } = financialStatements;
 
     return (
       <div className="bg-white dark:bg-slate-900 p-10 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 max-w-5xl mx-auto transition-colors duration-300">
         <div className="text-center mb-10">
-          <h2 className="text-2xl font-bold dark:text-slate-100 uppercase tracking-tight">资产负债比较简表 (Comparative Balance Sheet)</h2>
-          <p className="text-slate-500 dark:text-slate-400 mt-2 font-mono">日期: {new Date().toLocaleDateString()} | 对比基准: 上月期末</p>
+          <h2 className="text-2xl font-bold dark:text-slate-100 uppercase tracking-tight">资产负债表 (Balance Sheet)</h2>
+          <p className="text-slate-500 dark:text-slate-400 mt-2 font-mono">日期: {new Date().toLocaleDateString()} | 币种: 人民币 (CNY)</p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
@@ -675,53 +639,38 @@ export default function Reports() {
           <div className="space-y-6">
             <div className="flex justify-between items-end border-b-2 border-slate-900 dark:border-slate-700 pb-2">
               <h3 className="text-lg font-black">资产 (Assets)</h3>
-              <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">期末余额 / 变动</div>
+              <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">期末余额</div>
             </div>
             <div className="space-y-4">
               <div className="flex justify-between items-center group">
-                <span className="text-sm font-medium">流动资产：</span>
+                <span className="text-sm font-bold">流动资产：</span>
               </div>
               <div className="pl-4 space-y-2">
                 <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400">
                   <span>货币资金 (现金/银行)</span>
-                  <div className="flex items-center">
-                    <span className="font-mono">{formatCurrency(current.assets.cash)}</span>
-                    {renderComparison(current.assets.cash, previous.assets.cash)}
-                  </div>
+                  <span className="font-mono">{formatCurrency(balanceSheet.assets.cash)}</span>
                 </div>
                 <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400">
                   <span>应收账款</span>
-                  <div className="flex items-center">
-                    <span className="font-mono">{formatCurrency(current.assets.receivable)}</span>
-                    {renderComparison(current.assets.receivable, previous.assets.receivable)}
-                  </div>
+                  <span className="font-mono">{formatCurrency(balanceSheet.assets.receivable)}</span>
                 </div>
                 <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400">
-                  <span>存货 (库存价值)</span>
-                  <div className="flex items-center">
-                    <span className="font-mono">{formatCurrency(current.assets.inventory)}</span>
-                    {renderComparison(current.assets.inventory, previous.assets.inventory)}
-                  </div>
+                  <span>存货</span>
+                  <span className="font-mono">{formatCurrency(balanceSheet.assets.inventory)}</span>
                 </div>
               </div>
-              <div className="flex justify-between items-center group">
-                <span className="text-sm font-medium">非流动资产：</span>
+              <div className="flex justify-between items-center group pt-2">
+                <span className="text-sm font-bold">非流动资产：</span>
               </div>
               <div className="pl-4 space-y-2">
                 <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400">
                   <span>固定资产净值</span>
-                  <div className="flex items-center">
-                    <span className="font-mono">{formatCurrency(current.assets.fixedAssets)}</span>
-                    {renderComparison(current.assets.fixedAssets, previous.assets.fixedAssets)}
-                  </div>
+                  <span className="font-mono">{formatCurrency(balanceSheet.assets.fixedAssets)}</span>
                 </div>
               </div>
-              <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
-                <span className="text-base font-bold">资产总计</span>
-                <div className="flex items-center">
-                  <span className="text-lg font-black text-indigo-600 font-mono">{formatCurrency(current.assets.total)}</span>
-                  {renderComparison(current.assets.total, previous.assets.total)}
-                </div>
+              <div className="pt-6 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                <span className="text-base font-black">资产总计 (Total Assets)</span>
+                <span className="text-lg font-black text-indigo-600 font-mono">{formatCurrency(balanceSheet.assets.total)}</span>
               </div>
             </div>
           </div>
@@ -734,23 +683,21 @@ export default function Reports() {
               </div>
               <div className="space-y-4">
                 <div className="flex justify-between items-center group">
-                  <span className="text-sm font-medium">流动负债：</span>
+                  <span className="text-sm font-bold">流动负债：</span>
                 </div>
                 <div className="pl-4 space-y-2">
                   <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400">
                     <span>应付账款</span>
-                    <div className="flex items-center">
-                      <span className="font-mono">{formatCurrency(current.liabilities.payable)}</span>
-                      {renderComparison(current.liabilities.payable, previous.liabilities.payable)}
-                    </div>
+                    <span className="font-mono">{formatCurrency(balanceSheet.liabilities.payable)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400">
+                    <span>应交税费</span>
+                    <span className="font-mono">{formatCurrency(balanceSheet.liabilities.taxPayable)}</span>
                   </div>
                 </div>
-                <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
-                  <span className="text-base font-bold">负债合计</span>
-                  <div className="flex items-center">
-                    <span className="text-lg font-black text-rose-600 font-mono">{formatCurrency(current.liabilities.total)}</span>
-                    {renderComparison(current.liabilities.total, previous.liabilities.total)}
-                  </div>
+                <div className="pt-6 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                  <span className="text-base font-black">负债合计 (Total Liabilities)</span>
+                  <span className="text-lg font-black text-rose-600 font-mono">{formatCurrency(balanceSheet.liabilities.total)}</span>
                 </div>
               </div>
             </div>
@@ -761,30 +708,34 @@ export default function Reports() {
               </div>
               <div className="space-y-4">
                 <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400">
-                  <span>留存收益 (估算)</span>
-                  <div className="flex items-center">
-                    <span className="font-mono">{formatCurrency(current.equity.total)}</span>
-                    {renderComparison(current.equity.total, previous.equity.total)}
-                  </div>
+                  <span>实收资本</span>
+                  <span className="font-mono">{formatCurrency(balanceSheet.equity.capital)}</span>
                 </div>
-                <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
-                  <span className="text-base font-bold">权益合计</span>
-                  <div className="flex items-center">
-                    <span className="text-lg font-black text-emerald-600 font-mono">{formatCurrency(current.equity.total)}</span>
-                    {renderComparison(current.equity.total, previous.equity.total)}
-                  </div>
+                <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400">
+                  <span>留存收益 (估算)</span>
+                  <span className="font-mono">{formatCurrency(balanceSheet.equity.retainedEarnings)}</span>
+                </div>
+                <div className="pt-6 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                  <span className="text-base font-black">权益合计 (Total Equity)</span>
+                  <span className="text-lg font-black text-emerald-600 font-mono">{formatCurrency(balanceSheet.equity.total)}</span>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="mt-12 pt-8 border-t-2 border-slate-900 dark:border-slate-700 flex justify-between items-center">
-          <span className="text-xl font-black uppercase italic">Total Liabilities & Equity</span>
+        <div className="mt-12 pt-8 border-t-2 border-slate-900 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-800/20 px-6 rounded-xl">
+          <span className="text-xl font-black uppercase italic tracking-tighter">Liabilities & Equity Total</span>
           <span className="text-2xl font-black text-slate-900 dark:text-slate-100 font-mono">
-            {formatCurrency(current.liabilities.total + current.equity.total)}
+            {formatCurrency(balanceSheet.liabilities.total + balanceSheet.equity.total)}
           </span>
         </div>
+        
+        {Math.abs(balanceSheet.assets.total - (balanceSheet.liabilities.total + balanceSheet.equity.total)) > 1 && (
+          <div className="mt-4 p-3 bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 text-xs font-bold text-center rounded-lg border border-rose-100 dark:border-rose-900/30">
+            警告：资产负债表不平衡！差额: {formatCurrency(balanceSheet.assets.total - (balanceSheet.liabilities.total + balanceSheet.equity.total))}
+          </div>
+        )}
       </div>
     );
   };
@@ -1165,6 +1116,29 @@ export default function Reports() {
     }
   };
 
+  const handleGenerateVouchers = async (type: 'orders' | 'incomes' | 'expenses' | 'supplier_bills', ids: number[]) => {
+    if (ids.length === 0) return;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/generate-business-vouchers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, ids })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`成功生成 ${data.count} 张会计凭证`, "success");
+        fetchData();
+      } else {
+        showToast(data.error || "生成凭证失败", "error");
+      }
+    } catch (e) {
+      showToast("网络请求失败", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const toggleSelectAll = () => {
     if (selectedOrderIds.length === filteredOrders.length) {
       setSelectedOrderIds([]);
@@ -1526,115 +1500,164 @@ export default function Reports() {
 
       {/* Tab Content */}
       {activeTab === "summary" && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-1 space-y-6">
-            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 transition-colors duration-300">
-              <div className="text-xs text-slate-500 dark:text-slate-400 uppercase font-medium mb-1">区间收入</div>
-              <div className="text-3xl font-bold text-emerald-600 dark:text-emerald-500 font-mono">{formatCurrency(totalIncome)}</div>
-            </div>
-            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 transition-colors duration-300">
-              <div className="text-xs text-slate-500 dark:text-slate-400 uppercase font-medium mb-1">区间支出</div>
-              <div className="text-3xl font-bold text-rose-600 dark:text-rose-500 font-mono">{formatCurrency(totalExpense)}</div>
-            </div>
-            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 transition-colors duration-300">
-              <div className="text-xs text-slate-500 dark:text-slate-400 uppercase font-medium mb-1">区间利润</div>
-              <div className="text-3xl font-bold text-indigo-600 dark:text-indigo-400 font-mono">{formatCurrency(totalIncome - totalExpense)}</div>
-            </div>
-            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 transition-colors duration-300">
-              <div className="text-xs text-slate-500 dark:text-slate-400 uppercase font-medium mb-1">库存总价值</div>
-              <div className="text-3xl font-bold text-emerald-600 dark:text-emerald-500 font-mono">{formatCurrency(inventoryValuation)}</div>
-            </div>
-
-            <div className="bg-indigo-50 dark:bg-indigo-900/20 p-6 rounded-2xl border border-indigo-100 dark:border-indigo-800 transition-colors duration-300">
-              <h4 className="text-sm font-bold text-indigo-900 dark:text-indigo-300 mb-4 flex items-center">
-                <TrendingUp size={18} className="mr-2" />
-                财务关键指标
-              </h4>
-              <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-slate-600 dark:text-slate-400">毛利率 (估算)</span>
-                  <span className={cn(
-                    "font-bold font-mono",
-                    (totalIncome - totalExpense) / totalIncome > 0.2 ? "text-emerald-600" : "text-amber-600"
-                  )}>
-                    {totalIncome > 0 ? (((totalIncome - totalExpense) / totalIncome) * 100).toFixed(1) : "0.0"}%
-                  </span>
+        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+          {/* Professional Ledger Status */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div className="md:col-span-3 bg-white dark:bg-slate-900 p-8 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div className="space-y-2">
+                <h3 className="text-xl font-black flex items-center dark:text-slate-100">
+                  <ShieldCheck className="mr-3 text-emerald-500" size={24} />
+                  财务审计与凭证合规状态
+                </h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  {stats?.unvouchered?.total === 0 
+                    ? "🎉 所有业务单据均已生成会计凭证，账实相符。" 
+                    : `⚠️ 尚有 ${stats?.unvouchered?.total} 笔业务单据未同步到会计账簿（未生成凭证）。`}
+                </p>
+              </div>
+              {stats?.unvouchered?.total > 0 && (
+                <div className="flex gap-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    className="rounded-xl border-indigo-200 text-indigo-600 hover:bg-indigo-50"
+                    onClick={async () => {
+                      const confirm = window.confirm("确定要为所有待处理单据生成凭证吗？");
+                      if (!confirm) return;
+                      // Sequence posting
+                      if (stats.unvouchered.orders > 0) await handleGenerateVouchers('orders', orders.filter(o => !o.voucher_id).map(o => o.id));
+                      if (stats.unvouchered.incomes > 0) await handleGenerateVouchers('incomes', incomes.filter(i => !i.voucher_id).map(i => i.id));
+                      if (stats.unvouchered.expenses > 0) await handleGenerateVouchers('expenses', expenses.filter(e => !e.voucher_id).map(e => e.id));
+                      if (stats.unvouchered.bills > 0) await handleGenerateVouchers('supplier_bills', supplierBills.filter(b => !b.voucher_id).map(b => b.id));
+                    }}
+                  >
+                    <FileJson className="mr-2" size={14} />
+                    一键全量过账
+                  </Button>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-slate-600 dark:text-slate-400">净利润率</span>
-                  <span className="font-bold font-mono text-indigo-600 dark:text-indigo-400">
-                    {totalIncome > 0 ? (((totalIncome - totalExpense) / totalIncome) * 100).toFixed(1) : "0.0"}%
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-slate-600 dark:text-slate-400">回款率</span>
-                  <span className="font-bold font-mono text-emerald-600">
-                    {orders.reduce((acc, cur) => acc + cur.total, 0) > 0 
-                      ? ((incomes.reduce((acc, cur) => acc + cur.amount, 0) / orders.reduce((acc, cur) => acc + cur.total, 0)) * 100).toFixed(1) 
-                      : "0.0"}%
-                  </span>
-                </div>
+              )}
+            </div>
+            <div className="bg-indigo-600 p-8 rounded-2xl shadow-lg shadow-indigo-200 dark:shadow-none text-white flex flex-col justify-center">
+              <div className="text-xs font-bold uppercase tracking-widest opacity-80 mb-1">ROE (专业核算)</div>
+              <div className="text-3xl font-black font-mono">
+                {financialStatements?.profitLoss?.netProfit && financialStatements?.balanceSheet?.equity?.total > 0 
+                  ? ((financialStatements.profitLoss.netProfit / financialStatements.balanceSheet.equity.total) * 100).toFixed(2) 
+                  : "0.00"}%
               </div>
             </div>
-
-            <button 
-              onClick={handleExportFullFinancialReport}
-              className="w-full flex items-center justify-center py-3 bg-slate-900 dark:bg-slate-800 text-white rounded-xl hover:bg-slate-800 dark:hover:bg-slate-700 transition-colors shadow-lg shadow-slate-200 dark:shadow-none font-bold"
-            >
-              <Download size={18} className="mr-2" />
-              导出标准财务报告 (PDF)
-            </button>
           </div>
-          <div className="lg:col-span-2 space-y-8">
-            <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 transition-colors duration-300">
-              <h3 className="text-lg font-semibold mb-8 dark:text-slate-100 flex items-center justify-between">
-                <span>客户产值贡献分析 (Pareto 80/20)</span>
-                <span className="text-[10px] text-slate-400 font-normal">累计百分比反映核心客户群</span>
-              </h3>
-              <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={paretoChartData.slice(0, 10)}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" opacity={0.1} />
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                    <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={(val) => `¥${val/1000}k`} />
-                    <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#10b981' }} tickFormatter={(val) => `${val}%`} />
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', border: 'none', borderRadius: '8px', color: '#fff' }}
-                      formatter={(value: any, name: string) => name === 'percentage' ? [`${value.toFixed(1)}%`, '累计占比'] : [formatCurrency(value as number), '产值']}
-                    />
-                    <Bar yAxisId="left" dataKey="value" fill="#6366f1" radius={[4, 4, 0, 0]} barSize={30} />
-                    <Line yAxisId="right" type="monotone" dataKey="percentage" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
 
-            <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 transition-colors duration-300">
-              <h3 className="text-lg font-semibold mb-8 dark:text-slate-100">支出分类分布</h3>
-              <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={pieData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={80}
-                      outerRadius={120}
-                      paddingAngle={5}
-                      dataKey="value"
-                      nameKey="name"
-                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                    >
-                      {pieData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip 
-                      formatter={(value: number) => formatCurrency(value)}
-                      contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', border: 'none', borderRadius: '8px', color: '#fff' }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-1 space-y-6">
+              <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 transition-colors duration-300">
+                <div className="text-xs text-slate-500 dark:text-slate-400 uppercase font-medium mb-1">区间收入</div>
+                <div className="text-3xl font-bold text-emerald-600 dark:text-emerald-500 font-mono">{formatCurrency(totalIncome)}</div>
+              </div>
+              <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 transition-colors duration-300">
+                <div className="text-xs text-slate-500 dark:text-slate-400 uppercase font-medium mb-1">区间支出</div>
+                <div className="text-3xl font-bold text-rose-600 dark:text-rose-500 font-mono">{formatCurrency(totalExpense)}</div>
+              </div>
+              <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 transition-colors duration-300">
+                <div className="text-xs text-slate-500 dark:text-slate-400 uppercase font-medium mb-1">区间利润</div>
+                <div className="text-3xl font-bold text-indigo-600 dark:text-indigo-400 font-mono">{formatCurrency(totalIncome - totalExpense)}</div>
+              </div>
+              
+              <div className="bg-indigo-50 dark:bg-indigo-900/20 p-6 rounded-2xl border border-indigo-100 dark:border-indigo-800 transition-colors duration-300">
+                <h4 className="text-sm font-bold text-indigo-900 dark:text-indigo-300 mb-4 flex items-center">
+                  <ShieldCheck size={18} className="mr-2 text-emerald-500" />
+                  待审计单据明细
+                </h4>
+                <div className="space-y-4">
+                  {[
+                    { label: '待入账送货单', count: stats?.unvouchered?.orders, icon: <Truck size={14} />, color: 'text-indigo-500', type: 'orders', list: orders },
+                    { label: '待入账收款单', count: stats?.unvouchered?.incomes, icon: <ArrowDownLeft size={14} />, color: 'text-emerald-500', type: 'incomes', list: incomes },
+                    { label: '待入账费用单', count: stats?.unvouchered?.expenses, icon: <ArrowUpRight size={14} />, color: 'text-rose-500', type: 'expenses', list: expenses },
+                    { label: '待入账应付账单', count: stats?.unvouchered?.bills, icon: <FileText size={14} />, color: 'text-amber-500', type: 'supplier_bills', list: supplierBills }
+                  ].map((item, idx) => (
+                    <div key={idx} className="flex items-center justify-between group">
+                      <div className="flex items-center space-x-3">
+                        <div className={cn("p-1.5 rounded-lg bg-white dark:bg-slate-800 shadow-sm", item.color)}>
+                          {item.icon}
+                        </div>
+                        <div>
+                          <div className="text-[11px] font-bold dark:text-slate-200">{item.label}</div>
+                          <div className="text-[10px] text-slate-400 font-mono">{item.count || 0} 笔待处理</div>
+                        </div>
+                      </div>
+                      {item.count > 0 && (
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="h-6 px-2 text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={() => handleGenerateVouchers(item.type as any, item.list.filter((x: any) => !x.voucher_id).map((x: any) => x.id))}
+                        >
+                          过账
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <button 
+                onClick={handleExportFullFinancialReport}
+                className="w-full flex items-center justify-center py-3 bg-slate-900 dark:bg-slate-800 text-white rounded-xl hover:bg-slate-800 dark:hover:bg-slate-700 transition-colors shadow-lg shadow-slate-200 dark:shadow-none font-bold"
+              >
+                <Download size={18} className="mr-2" />
+                导出标准财务报告 (PDF)
+              </button>
+            </div>
+            <div className="lg:col-span-2 space-y-8">
+              <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 transition-colors duration-300">
+                <h3 className="text-lg font-semibold mb-8 dark:text-slate-100 flex items-center justify-between">
+                  <span>客户产值贡献分析 (Pareto 80/20)</span>
+                  <span className="text-[10px] text-slate-400 font-normal">累计百分比反映核心客户群</span>
+                </h3>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={paretoChartData.slice(0, 10)}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" opacity={0.1} />
+                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                      <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={(val) => `¥${val/1000}k`} />
+                      <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#10b981' }} tickFormatter={(val) => `${val}%`} />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', border: 'none', borderRadius: '8px', color: '#fff' }}
+                        formatter={(value: any, name: string) => name === 'percentage' ? [`${value.toFixed(1)}%`, '累计占比'] : [formatCurrency(value as number), '产值']}
+                      />
+                      <Bar yAxisId="left" dataKey="value" fill="#6366f1" radius={[4, 4, 0, 0]} barSize={30} />
+                      <Line yAxisId="right" type="monotone" dataKey="percentage" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 transition-colors duration-300">
+                <h3 className="text-lg font-semibold mb-8 dark:text-slate-100">支出分类分布</h3>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={pieData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={80}
+                        outerRadius={120}
+                        paddingAngle={5}
+                        dataKey="value"
+                        nameKey="name"
+                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      >
+                        {pieData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip 
+                        formatter={(value: number) => formatCurrency(value)}
+                        contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', border: 'none', borderRadius: '8px', color: '#fff' }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
             </div>
           </div>

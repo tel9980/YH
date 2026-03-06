@@ -289,46 +289,50 @@ try {
   });
 
   app.get("/api/trial-balance", (req, res) => {
+    const { startDate, endDate } = req.query;
     const accounts = db.prepare("SELECT * FROM accounts").all() as any[];
+    
     const result = accounts.map(acc => {
-      let debit = 0;
-      let credit = 0;
+      // 核心逻辑：科目余额 = 期初 + 本期借方 - 本期贷方 (资产类)
+      // 损益类科目通常在期末结转后余额为0
+      
+      const queryParams = startDate && endDate ? [acc.id, acc.id + '%', startDate, endDate] : [acc.id, acc.id + '%'];
+      const dateFilter = startDate && endDate ? " AND e.date BETWEEN ? AND ?" : "";
+      
+      const manualLines = db.prepare(`
+        SELECT SUM(l.debit) as d, SUM(l.credit) as c 
+        FROM journal_entry_lines l
+        JOIN journal_entries e ON l.entry_id = e.id
+        WHERE (l.account_id = ? OR l.account_id LIKE ?) ${dateFilter}
+      `).get(...queryParams) as any;
 
-      // Logic for each account type
-      if (acc.id === '1122') { // 应收账款
-        debit = db.prepare("SELECT SUM(total) as total FROM orders").get().total || 0;
-        credit = db.prepare("SELECT SUM(amount) as total FROM incomes").get().total || 0;
-      } else if (acc.id === '5001') { // 主营业务收入
-        credit = db.prepare("SELECT SUM(total) as total FROM orders").get().total || 0;
-      } else if (acc.id === '1001' || acc.id === '1002') { // 货币资金
-        const methodType = acc.id === '1001' ? 'Cash' : 'Bank';
-        const inAmt = db.prepare("SELECT SUM(amount) as total FROM incomes WHERE method IN (SELECT name FROM payment_methods WHERE type = ?)").get(methodType).total || 0;
-        const outAmt = db.prepare("SELECT SUM(amount) as total FROM expenses WHERE method IN (SELECT name FROM payment_methods WHERE type = ?)").get(methodType).total || 0;
-        debit = inAmt;
-        credit = outAmt;
-      } else if (acc.type === 'cost' || acc.type === 'expense') {
-        debit = db.prepare("SELECT SUM(amount) as total FROM expenses WHERE account_id = ? OR account_id LIKE ?").get(acc.id, acc.id + '%').total || 0;
-      } else if (acc.id === '1601') { // 固定资产
-        debit = db.prepare("SELECT SUM(cost) as total FROM fixed_assets").get().total || 0;
-      } else if (acc.id === '1602') { // 累计折旧
-        const assets = db.prepare("SELECT * FROM fixed_assets").all() as any[];
-        const today = new Date();
-        assets.forEach(asset => {
-          const start = new Date(asset.acquisition_date);
-          const monthsPassed = (today.getFullYear() - start.getFullYear()) * 12 + (today.getMonth() - start.getMonth());
-          if (monthsPassed > 0) {
-            const monthlyDepreciation = (asset.cost - asset.salvage_value) / (asset.useful_life * 12);
-            credit += Math.min(monthlyDepreciation * monthsPassed, asset.cost - asset.salvage_value);
-          }
-        });
+      let debit = manualLines.d || 0;
+      let credit = manualLines.c || 0;
+
+      // 兼容逻辑：处理尚未生成凭证的原始业务数据 (为了平滑过渡)
+      if (!startDate) { // 仅在查询全量余额时合并未过账数据
+        if (acc.id === '1122') { // 应收账款
+          const unvoucheredOrders = db.prepare("SELECT SUM(total) as total FROM orders WHERE voucher_id IS NULL").get().total || 0;
+          const unvoucheredIncomes = db.prepare("SELECT SUM(amount) as total FROM incomes WHERE voucher_id IS NULL").get().total || 0;
+          debit += unvoucheredOrders;
+          credit += unvoucheredIncomes;
+        } else if (acc.id === '5001' || acc.id === '500101') { // 收入
+          const unvoucheredOrders = db.prepare("SELECT SUM(total) as total FROM orders WHERE voucher_id IS NULL").get().total || 0;
+          credit += unvoucheredOrders;
+        } else if (acc.id === '1001' || acc.id === '1002') { // 货币资金
+          const type = acc.id === '1001' ? 'Cash' : 'Bank';
+          const unvoucheredIn = db.prepare("SELECT SUM(amount) as total FROM incomes WHERE voucher_id IS NULL AND method IN (SELECT name FROM payment_methods WHERE type = ?)").get(type).total || 0;
+          const unvoucheredOut = db.prepare("SELECT SUM(amount) as total FROM expenses WHERE voucher_id IS NULL AND method IN (SELECT name FROM payment_methods WHERE type = ?)").get(type).total || 0;
+          debit += unvoucheredIn;
+          credit += unvoucheredOut;
+        }
       }
 
-      // Add manual journal entries
-      const manualLines = db.prepare("SELECT SUM(debit) as d, SUM(credit) as c FROM journal_entry_lines WHERE account_id = ? OR account_id LIKE ?").get(acc.id, acc.id + '%') as any;
-      debit += manualLines.d || 0;
-      credit += manualLines.c || 0;
+      const balance = (acc.type === 'asset' || acc.type === 'cost' || acc.type === 'expense') 
+        ? (debit - credit) 
+        : (credit - debit);
 
-      return { ...acc, debit, credit, balance: debit - credit };
+      return { ...acc, debit, credit, balance };
     });
     res.json(result);
   });
@@ -440,6 +444,38 @@ try {
             ]
           });
           db.prepare("UPDATE incomes SET voucher_id = ? WHERE id = ?").run(voucherId, income.id);
+          count++;
+        });
+      } else if (type === 'expenses') {
+        const expenses = db.prepare(`SELECT * FROM expenses WHERE id IN (${ids.join(',')}) AND voucher_id IS NULL`).all() as any[];
+        expenses.forEach(exp => {
+          const paymentAccount = exp.method.includes('现金') ? '1001' : '1002';
+          const debitAccount = exp.account_id || '6602'; // 默认管理费用
+          const voucherId = generateVoucher({
+            date: exp.date,
+            voucher_no: `支-${exp.date.replace(/-/g, '').substring(2)}-${exp.id.toString().padStart(3, '0')}`,
+            notes: `支出: ${exp.supplier || ''} - ${exp.category} ${exp.notes || ''}`,
+            lines: [
+              { account_id: debitAccount, debit: exp.amount, credit: 0 },
+              { account_id: paymentAccount, debit: 0, credit: exp.amount },
+            ]
+          });
+          db.prepare("UPDATE expenses SET voucher_id = ? WHERE id = ?").run(voucherId, exp.id);
+          count++;
+        });
+      } else if (type === 'supplier_bills') {
+        const bills = db.prepare(`SELECT * FROM supplier_bills WHERE id IN (${ids.join(',')}) AND voucher_id IS NULL`).all() as any[];
+        bills.forEach(bill => {
+          const voucherId = generateVoucher({
+            date: bill.date,
+            voucher_no: `付-${bill.date.replace(/-/g, '').substring(2)}-${bill.id.toString().padStart(3, '0')}`,
+            notes: `应付账单: ${bill.supplier} - ${bill.category}`,
+            lines: [
+              { account_id: '540101', debit: bill.amount, credit: 0 }, // 默认计入原材料成本
+              { account_id: '2202', debit: 0, credit: bill.amount }, // 应付账款
+            ]
+          });
+          db.prepare("UPDATE supplier_bills SET voucher_id = ? WHERE id = ?").run(voucherId, bill.id);
           count++;
         });
       }
@@ -584,6 +620,78 @@ try {
       },
       net: salesCash - (costCash + expenseCash) - assetPurchase
     });
+  });
+
+  app.get("/api/financial-statements", (req, res) => {
+    try {
+      const accounts = db.prepare("SELECT * FROM accounts").all() as any[];
+      const balances = accounts.map(acc => {
+        const manualLines = db.prepare(`
+          SELECT SUM(l.debit) as d, SUM(l.credit) as c 
+          FROM journal_entry_lines l
+          JOIN journal_entries e ON l.entry_id = e.id
+          WHERE (l.account_id = ? OR l.account_id LIKE ?)
+        `).get(acc.id, acc.id + '%') as any;
+
+        let debit = manualLines.d || 0;
+        let credit = manualLines.c || 0;
+
+        // 包含未生成凭证的数据
+        if (acc.id === '1122') {
+          debit += db.prepare("SELECT SUM(total) as total FROM orders WHERE voucher_id IS NULL").get().total || 0;
+          credit += db.prepare("SELECT SUM(amount) as total FROM incomes WHERE voucher_id IS NULL").get().total || 0;
+        } else if (acc.id === '5001' || acc.id === '500101') {
+          credit += db.prepare("SELECT SUM(total) as total FROM orders WHERE voucher_id IS NULL").get().total || 0;
+        } else if (acc.id === '1001' || acc.id === '1002') {
+          const type = acc.id === '1001' ? 'Cash' : 'Bank';
+          debit += db.prepare("SELECT SUM(amount) as total FROM incomes WHERE voucher_id IS NULL AND method IN (SELECT name FROM payment_methods WHERE type = ?)").get(type).total || 0;
+          credit += db.prepare("SELECT SUM(amount) as total FROM expenses WHERE voucher_id IS NULL AND method IN (SELECT name FROM payment_methods WHERE type = ?)").get(type).total || 0;
+        } else if (acc.id === '2202') {
+          credit += db.prepare("SELECT SUM(amount) as total FROM supplier_bills WHERE voucher_id IS NULL").get().total || 0;
+          debit += db.prepare("SELECT SUM(amount) as total FROM expenses WHERE voucher_id IS NULL AND supplier IS NOT NULL").get().total || 0;
+        } else if (acc.type === 'cost' || acc.type === 'expense') {
+          debit += db.prepare("SELECT SUM(amount) as total FROM expenses WHERE voucher_id IS NULL AND (account_id = ? OR account_id LIKE ?)").get(acc.id, acc.id + '%').total || 0;
+        }
+
+        const balance = (acc.type === 'asset' || acc.type === 'cost' || acc.type === 'expense') ? (debit - credit) : (credit - debit);
+        return { ...acc, balance };
+      });
+
+      const getBalance = (id: string) => balances.find(b => b.id === id)?.balance || 0;
+      const getSumByPrefix = (prefix: string) => balances.filter(b => b.id.startsWith(prefix)).reduce((acc, cur) => acc + (cur.type === 'asset' ? cur.balance : cur.balance), 0);
+
+      const balanceSheet = {
+        assets: {
+          cash: getBalance('1001') + getBalance('1002'),
+          receivable: getBalance('1122'),
+          inventory: getSumByPrefix('14'),
+          fixedAssets: getBalance('1601') - getBalance('1602'),
+          total: getSumByPrefix('1')
+        },
+        liabilities: {
+          payable: getBalance('2202'),
+          taxPayable: getSumByPrefix('2221'),
+          total: getSumByPrefix('2')
+        },
+        equity: {
+          capital: getBalance('4001'),
+          retainedEarnings: getBalance('410401') + getBalance('4103'),
+          total: getSumByPrefix('4')
+        }
+      };
+
+      const profitLoss = {
+        revenue: getSumByPrefix('50'),
+        cost: getSumByPrefix('54'),
+        grossProfit: getSumByPrefix('50') - getSumByPrefix('54'),
+        expenses: getSumByPrefix('66'),
+        netProfit: getSumByPrefix('50') - getSumByPrefix('54') - getSumByPrefix('66')
+      };
+
+      res.json({ balanceSheet, profitLoss });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   app.get("/api/dupont-metrics", (req, res) => {
@@ -875,6 +983,12 @@ async function startServer() {
     const outsourceCount = db.prepare("SELECT COUNT(*) as count FROM orders WHERE outsource != '' AND outsource IS NOT NULL").get().count;
     const inventoryAlerts = db.prepare("SELECT COUNT(*) as count FROM inventory WHERE stock < low_threshold").get().count;
     
+    // Unvouchered counts for audit
+    const unvoucheredOrders = db.prepare("SELECT COUNT(*) as count FROM orders WHERE voucher_id IS NULL").get().count;
+    const unvoucheredIncomes = db.prepare("SELECT COUNT(*) as count FROM incomes WHERE voucher_id IS NULL").get().count;
+    const unvoucheredExpenses = db.prepare("SELECT COUNT(*) as count FROM expenses WHERE voucher_id IS NULL").get().count;
+    const unvoucheredBills = db.prepare("SELECT COUNT(*) as count FROM supplier_bills WHERE voucher_id IS NULL").get().count;
+    
     // Aging calculation
     const getAgingBucket = (days: number) => {
       const date = new Date(today.getTime() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -917,6 +1031,13 @@ async function startServer() {
       orderCount,
       outsourceCount,
       inventoryAlerts,
+      unvouchered: {
+        orders: unvoucheredOrders,
+        incomes: unvoucheredIncomes,
+        expenses: unvoucheredExpenses,
+        bills: unvoucheredBills,
+        total: unvoucheredOrders + unvoucheredIncomes + unvoucheredExpenses + unvoucheredBills
+      },
       aging,
       mom: {
         income: prevMonthIncome ? ((currentMonthIncome - prevMonthIncome) / prevMonthIncome) * 100 : 0,

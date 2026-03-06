@@ -417,15 +417,28 @@ try {
         orders.forEach(order => {
           const taxAmount = order.total * (order.tax_rate / (100 + order.tax_rate));
           const netAmount = order.total - taxAmount;
+          
+          // 专业逻辑：自动结转主营业务成本 (COGS)
+          // 查找该产品的库存单价
+          const inv = db.prepare("SELECT unit_cost FROM inventory WHERE name = ?").get(order.product) as any;
+          const cogsAmount = inv ? (inv.unit_cost * order.qty) : 0;
+
+          const lines = [
+            { account_id: '1122', debit: order.total, credit: 0 }, // 应收账款
+            { account_id: '500101', debit: 0, credit: netAmount }, // 主营业务收入
+            { account_id: '222102', debit: 0, credit: taxAmount }, // 应交增值税-销项
+          ];
+
+          if (cogsAmount > 0) {
+            lines.push({ account_id: '540101', debit: cogsAmount, credit: 0 }); // 主营业务成本
+            lines.push({ account_id: '1405', debit: 0, credit: cogsAmount }); // 库存商品
+          }
+
           const voucherId = generateVoucher({
             date: order.date,
             voucher_no: `记-${order.date.replace(/-/g, '').substring(2)}-${order.id.toString().padStart(3, '0')}`,
             notes: `销售: ${order.customer} - ${order.product}`,
-            lines: [
-              { account_id: '1122', debit: order.total, credit: 0 }, // 应收账款
-              { account_id: '500101', debit: 0, credit: netAmount }, // 主营业务收入
-              { account_id: '222102', debit: 0, credit: taxAmount }, // 应交增值税-销项
-            ]
+            lines
           });
           db.prepare("UPDATE orders SET voucher_id = ? WHERE id = ?").run(voucherId, order.id);
           count++;
@@ -494,29 +507,51 @@ try {
 
     try {
       const transaction = db.transaction(() => {
+        // 1. 获取所有损益类科目
         const accounts = db.prepare("SELECT * FROM accounts WHERE type IN ('revenue', 'cost', 'expense')").all() as any[];
         const closingLines = [];
         let netProfit = 0;
 
         for (const acc of accounts) {
-          let balance = 0;
-          if (acc.id === '5001') {
-            const credit = db.prepare("SELECT SUM(total) as total FROM orders WHERE date BETWEEN ? AND ?").get(startDate, endDate).total || 0;
-            const debit = db.prepare("SELECT SUM(debit) as d FROM journal_entry_lines l JOIN journal_entries e ON l.entry_id = e.id WHERE l.account_id = ? AND e.date BETWEEN ? AND ?").get(acc.id, startDate, endDate).d || 0;
-            const manualCredit = db.prepare("SELECT SUM(credit) as c FROM journal_entry_lines l JOIN journal_entries e ON l.entry_id = e.id WHERE l.account_id = ? AND e.date BETWEEN ? AND ?").get(acc.id, startDate, endDate).c || 0;
-            balance = (credit + manualCredit) - debit;
-          } else {
-            const debit = db.prepare("SELECT SUM(amount) as total FROM expenses WHERE (account_id = ? OR account_id LIKE ?) AND date BETWEEN ? AND ?").get(acc.id, acc.id + '%', startDate, endDate).total || 0;
-            const manualDebit = db.prepare("SELECT SUM(debit) as d FROM journal_entry_lines l JOIN journal_entries e ON l.entry_id = e.id WHERE l.account_id = ? AND e.date BETWEEN ? AND ?").get(acc.id, startDate, endDate).d || 0;
-            const manualCredit = db.prepare("SELECT SUM(credit) as c FROM journal_entry_lines l JOIN journal_entries e ON l.entry_id = e.id WHERE l.account_id = ? AND e.date BETWEEN ? AND ?").get(acc.id, startDate, endDate).c || 0;
-            balance = (debit + manualDebit) - manualCredit;
+          // 获取该科目在指定时间段内的余额
+          // 借方发生额
+          const debitRes = db.prepare(`
+            SELECT SUM(l.debit) as total 
+            FROM journal_entry_lines l
+            JOIN journal_entries e ON l.entry_id = e.id
+            WHERE (l.account_id = ? OR l.account_id LIKE ?) AND e.date BETWEEN ? AND ?
+          `).get(acc.id, acc.id + '%', startDate, endDate) as any;
+          
+          // 贷方发生额
+          const creditRes = db.prepare(`
+            SELECT SUM(l.credit) as total 
+            FROM journal_entry_lines l
+            JOIN journal_entries e ON l.entry_id = e.id
+            WHERE (l.account_id = ? OR l.account_id LIKE ?) AND e.date BETWEEN ? AND ?
+          `).get(acc.id, acc.id + '%', startDate, endDate) as any;
+
+          let debit = debitRes.total || 0;
+          let credit = creditRes.total || 0;
+
+          // 包含未结转的业务数据 (orders, incomes, expenses, supplier_bills)
+          if (acc.id === '5001' || acc.id === '500101') {
+            credit += db.prepare("SELECT SUM(total) as total FROM orders WHERE voucher_id IS NULL AND date BETWEEN ? AND ?").get(startDate, endDate).total || 0;
+          } else if (acc.type === 'cost' || acc.type === 'expense') {
+            debit += db.prepare("SELECT SUM(amount) as total FROM expenses WHERE voucher_id IS NULL AND (account_id = ? OR account_id LIKE ?) AND date BETWEEN ? AND ?").get(acc.id, acc.id + '%', startDate, endDate).total || 0;
+            if (acc.id === '540101') {
+              debit += db.prepare("SELECT SUM(amount) as total FROM supplier_bills WHERE voucher_id IS NULL AND date BETWEEN ? AND ?").get(startDate, endDate).total || 0;
+            }
           }
 
-          if (balance !== 0) {
-            if (acc.type === 'revenue') {
+          if (acc.type === 'revenue') {
+            const balance = credit - debit;
+            if (Math.abs(balance) > 0.01) {
               closingLines.push({ account_id: acc.id, debit: balance, credit: 0 });
               netProfit += balance;
-            } else {
+            }
+          } else {
+            const balance = debit - credit;
+            if (Math.abs(balance) > 0.01) {
               closingLines.push({ account_id: acc.id, debit: 0, credit: balance });
               netProfit -= balance;
             }
@@ -524,7 +559,7 @@ try {
         }
 
         if (closingLines.length > 0) {
-          // Add line to 'Current Year Profit'
+          // 结转至“本年利润”
           if (netProfit > 0) {
             closingLines.push({ account_id: '4103', debit: 0, credit: netProfit });
           } else {
@@ -539,7 +574,7 @@ try {
           for (const line of closingLines) {
             lineStmt.run(entryId, line.account_id, line.debit, line.credit);
           }
-          return { success: true, count: closingLines.length };
+          return { success: true, count: closingLines.length, netProfit };
         }
         return { success: false, message: "该时段无损益发生" };
       });
@@ -577,18 +612,21 @@ try {
 
       if (totalDepreciation > 0) {
         const transaction = db.transaction(() => {
-          const entryStmt = db.prepare("INSERT INTO journal_entries (date, voucher_no, notes, created_at) VALUES (?, ?, ?, ?)");
-          const info = entryStmt.run(endDate, `折-${month.replace('-', '')}-001`, `${month} 固定资产折旧计提`, new Date().toISOString());
-          const entryId = info.lastInsertRowid;
-
-          const lineStmt = db.prepare("INSERT INTO journal_entry_lines (entry_id, account_id, debit, credit) VALUES (?, ?, ?, ?)");
-          lineStmt.run(entryId, '6602', totalDepreciation, 0); // 管理费用
-          lineStmt.run(entryId, '1602', 0, totalDepreciation); // 累计折旧
+          const voucherId = generateVoucher({
+            date: endDate,
+            voucher_no: `计-${month.replace('-', '')}-001`,
+            notes: `${month} 固定资产计提折旧`,
+            lines: [
+              { account_id: '540103', debit: totalDepreciation, credit: 0 }, // 制造费用 (结转到成本)
+              { account_id: '1602', debit: 0, credit: totalDepreciation }, // 累计折旧
+            ]
+          });
+          return voucherId;
         });
-        transaction();
-        res.json({ success: true, amount: totalDepreciation });
+        const vid = transaction();
+        res.json({ success: true, voucher_id: vid, amount: totalDepreciation });
       } else {
-        res.json({ success: false, message: "本月无新增折旧" });
+        res.json({ success: false, message: "本月无折旧计提" });
       }
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -777,31 +815,46 @@ try {
     });
   });
 
-  // Tax Report
+  // Tax Report (Enhanced with Voucher Integration)
   app.get("/api/tax-report", (req, res) => {
     const { startDate, endDate } = req.query;
     const params = [startDate, endDate];
     
-    // Output VAT: based on invoiced orders
-    const outputVat = db.prepare("SELECT SUM(total * tax_rate / (1 + tax_rate)) as total FROM orders WHERE invoiced = 1 AND date BETWEEN ? AND ?").get(params).total || 0;
+    // 1. 专业逻辑：基于会计科目 (2221) 的税务计算
+    const taxBalances = db.prepare(`
+      SELECT l.account_id, SUM(l.debit) as d, SUM(l.credit) as c 
+      FROM journal_entry_lines l
+      JOIN journal_entries e ON l.entry_id = e.id
+      WHERE l.account_id LIKE '2221%' AND e.date BETWEEN ? AND ?
+      GROUP BY l.account_id
+    `).all(startDate, endDate) as any[];
+
+    const outputVoucher = taxBalances.find(b => b.account_id === '222102')?.c || 0;
+    const inputVoucher = taxBalances.find(b => b.account_id === '222101')?.d || 0;
+    const paidVatVoucher = taxBalances.find(b => b.account_id === '2221')?.d || 0; // 已缴增值税
+
+    // 2. 传统逻辑：基于业务单据的税务预估 (Invoiced Orders)
+    const outputVatDoc = db.prepare("SELECT SUM(total * tax_rate / (100 + tax_rate)) as total FROM orders WHERE invoiced = 1 AND date BETWEEN ? AND ?").get(params).total || 0;
+    const inputVatDoc = db.prepare("SELECT SUM(amount * tax_rate / (100 + tax_rate)) as total FROM expenses WHERE date BETWEEN ? AND ?").get(params).total || 0;
     
-    // Input VAT: based on expenses with tax
-    const inputVat = db.prepare("SELECT SUM(amount * tax_rate / (1 + tax_rate)) as total FROM expenses WHERE date BETWEEN ? AND ?").get(params).total || 0;
-    
-    // Profit for EIT estimation
+    // 3. 利润预估 (EIT estimation)
     const totalSales = db.prepare("SELECT SUM(total) as total FROM orders WHERE date BETWEEN ? AND ?").get(params).total || 0;
     const totalCost = db.prepare("SELECT SUM(amount) as total FROM expenses WHERE date BETWEEN ? AND ?").get(params).total || 0;
     const estimatedProfit = totalSales - totalCost;
     
     res.json({
       vat: {
-        output: outputVat,
-        input: inputVat,
-        net: Math.max(0, outputVat - inputVat)
+        output: outputVoucher || outputVatDoc,
+        input: inputVoucher || inputVatDoc,
+        payable: (outputVoucher || outputVatDoc) - (inputVoucher || inputVatDoc) - paidVatVoucher,
+        audit: {
+          voucherBased: !!(outputVoucher || inputVoucher),
+          docBased: true
+        }
       },
       eit: {
         profit: estimatedProfit,
-        estimate: Math.max(0, estimatedProfit * 0.25) // Standard 25% EIT
+        estimate: Math.max(0, estimatedProfit * 0.25) // Standard 25% CIT
       }
     });
   });

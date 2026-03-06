@@ -53,10 +53,10 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS customers (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, credit_limit REAL DEFAULT 0, pinyin TEXT);
   CREATE TABLE IF NOT EXISTS suppliers (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE);
   CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, spec TEXT, unit TEXT, default_price REAL, pinyin TEXT);
-  CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, customer TEXT, product TEXT, spec TEXT, qty REAL, unit TEXT, price REAL, total REAL, outsource TEXT, notes TEXT, fixture_loss REAL DEFAULT 0, attachment_url TEXT, invoiced INTEGER DEFAULT 0, tax_rate REAL DEFAULT 0, status TEXT DEFAULT '待产', worker TEXT, reconciled INTEGER DEFAULT 0);
-  CREATE TABLE IF NOT EXISTS incomes (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, customer TEXT, amount REAL, bank TEXT, notes TEXT);
-  CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, category TEXT, supplier TEXT, amount REAL, method TEXT, notes TEXT);
-  CREATE TABLE IF NOT EXISTS supplier_bills (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, supplier TEXT, category TEXT, amount REAL, notes TEXT);
+  CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, customer TEXT, product TEXT, spec TEXT, qty REAL, unit TEXT, price REAL, total REAL, outsource TEXT, notes TEXT, fixture_loss REAL DEFAULT 0, attachment_url TEXT, invoiced INTEGER DEFAULT 0, tax_rate REAL DEFAULT 0, status TEXT DEFAULT '待产', worker TEXT, reconciled INTEGER DEFAULT 0, voucher_id INTEGER, invoice_no TEXT, invoice_date TEXT);
+  CREATE TABLE IF NOT EXISTS incomes (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, customer TEXT, amount REAL, bank TEXT, notes TEXT, voucher_id INTEGER);
+  CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, category TEXT, supplier TEXT, amount REAL, method TEXT, notes TEXT, tax_rate REAL DEFAULT 0, account_id TEXT, voucher_id INTEGER);
+  CREATE TABLE IF NOT EXISTS supplier_bills (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, supplier TEXT, category TEXT, amount REAL, notes TEXT, voucher_id INTEGER);
   CREATE TABLE IF NOT EXISTS inventory (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, stock REAL, unit TEXT, low_threshold REAL, unit_cost REAL DEFAULT 0);
   CREATE TABLE IF NOT EXISTS inventory_transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, item_name TEXT, timestamp TEXT, type TEXT, delta REAL, notes TEXT);
   CREATE TABLE IF NOT EXISTS archives (id INTEGER PRIMARY KEY AUTOINCREMENT, month TEXT UNIQUE, archived_at TEXT);
@@ -130,6 +130,18 @@ try {
     db.prepare("ALTER TABLE orders ADD COLUMN invoice_no TEXT").run();
     db.prepare("ALTER TABLE orders ADD COLUMN invoice_date TEXT").run();
   } catch (e) {}
+  try {
+    db.prepare("ALTER TABLE orders ADD COLUMN voucher_id INTEGER").run();
+  } catch (e) {}
+  try {
+    db.prepare("ALTER TABLE incomes ADD COLUMN voucher_id INTEGER").run();
+  } catch (e) {}
+  try {
+    db.prepare("ALTER TABLE expenses ADD COLUMN voucher_id INTEGER").run();
+  } catch (e) {}
+  try {
+    db.prepare("ALTER TABLE supplier_bills ADD COLUMN voucher_id INTEGER").run();
+  } catch (e) {}
 
   // Migration: Add payment_type to payment_methods
   try {
@@ -141,27 +153,50 @@ try {
     const accountsCount = db.prepare("SELECT COUNT(*) as count FROM accounts").get().count;
     if (accountsCount === 0) {
       const defaultAccounts = [
-        // 资产类
+        // 资产类 (1xxx)
         { id: '1001', name: '库存现金', type: 'asset', category: '流动资产', parent_id: null },
         { id: '1002', name: '银行存款', type: 'asset', category: '流动资产', parent_id: null },
         { id: '1122', name: '应收账款', type: 'asset', category: '流动资产', parent_id: null },
+        { id: '1221', name: '其他应收款', type: 'asset', category: '流动资产', parent_id: null },
+        { id: '1403', name: '原材料', type: 'asset', category: '流动资产', parent_id: null },
         { id: '1405', name: '库存商品', type: 'asset', category: '流动资产', parent_id: null },
         { id: '1601', name: '固定资产', type: 'asset', category: '非流动资产', parent_id: null },
         { id: '1602', name: '累计折旧', type: 'asset', category: '非流动资产', parent_id: null },
-        // 负债类
+        
+        // 负债类 (2xxx)
         { id: '2202', name: '应付账款', type: 'liability', category: '流动负债', parent_id: null },
-        // 权益类
+        { id: '2211', name: '应付职工薪酬', type: 'liability', category: '流动负债', parent_id: null },
+        { id: '2221', name: '应交税费', type: 'liability', category: '流动负债', parent_id: null },
+        { id: '222101', name: '应交增值税-进项', type: 'liability', category: '流动负债', parent_id: '2221' },
+        { id: '222102', name: '应交增值税-销项', type: 'liability', category: '流动负债', parent_id: '2221' },
+        { id: '222103', name: '应交所得税', type: 'liability', category: '流动负债', parent_id: '2221' },
+
+        // 权益类 (4xxx)
         { id: '4001', name: '实收资本', type: 'equity', category: '所有者权益', parent_id: null },
+        { id: '4101', name: '盈余公积', type: 'equity', category: '所有者权益', parent_id: null },
         { id: '4103', name: '本年利润', type: 'equity', category: '所有者权益', parent_id: null },
-        // 损益类 - 收入
+        { id: '4104', name: '利润分配', type: 'equity', category: '所有者权益', parent_id: null },
+        { id: '410401', name: '未分配利润', type: 'equity', category: '所有者权益', parent_id: '4104' },
+
+        // 损益类 - 收入 (5xxx)
         { id: '5001', name: '主营业务收入', type: 'revenue', category: '营业收入', parent_id: null },
-        // 损益类 - 成本费用
+        { id: '500101', name: '氧化加工收入', type: 'revenue', category: '营业收入', parent_id: '5001' },
+        { id: '5301', name: '营业外收入', type: 'revenue', category: '其他收入', parent_id: null },
+
+        // 损益类 - 成本费用 (5xxx/6xxx)
         { id: '5401', name: '主营业务成本', type: 'cost', category: '营业成本', parent_id: null },
-        { id: '540101', name: '生产用原材料', type: 'cost', category: '营业成本', parent_id: '5401' },
+        { id: '540101', name: '直接材料', type: 'cost', category: '营业成本', parent_id: '5401' },
+        { id: '540102', name: '直接人工', type: 'cost', category: '营业成本', parent_id: '5401' },
+        { id: '540103', name: '制造费用', type: 'cost', category: '营业成本', parent_id: '5401' },
+        
+        { id: '6601', name: '销售费用', type: 'expense', category: '期间费用', parent_id: null },
         { id: '6602', name: '管理费用', type: 'expense', category: '期间费用', parent_id: null },
         { id: '660201', name: '办公费', type: 'expense', category: '期间费用', parent_id: '6602' },
         { id: '660202', name: '房租水电', type: 'expense', category: '期间费用', parent_id: '6602' },
-        { id: '6601', name: '销售费用', type: 'expense', category: '期间费用', parent_id: null },
+        { id: '660203', name: '维修费', type: 'expense', category: '期间费用', parent_id: '6602' },
+        { id: '6603', name: '财务费用', type: 'expense', category: '期间费用', parent_id: null },
+        { id: '660301', name: '利息支出', type: 'expense', category: '期间费用', parent_id: '6603' },
+        { id: '660302', name: '手续费', type: 'expense', category: '期间费用', parent_id: '6603' },
       ];
       const insert = db.prepare("INSERT INTO accounts (id, name, type, category, parent_id) VALUES (?, ?, ?, ?, ?)");
       defaultAccounts.forEach(a => insert.run(a.id, a.name, a.type, a.category, a.parent_id));
@@ -354,6 +389,66 @@ try {
   });
 
   // Period-End Automation
+  const generateVoucher = (data: { date: string, voucher_no: string, notes: string, lines: { account_id: string, debit: number, credit: number }[] }) => {
+    const transaction = db.transaction(() => {
+      const entryStmt = db.prepare("INSERT INTO journal_entries (date, voucher_no, notes, created_at) VALUES (?, ?, ?, ?)");
+      const info = entryStmt.run(data.date, data.voucher_no, data.notes, new Date().toISOString());
+      const entryId = info.lastInsertRowid;
+      
+      const lineStmt = db.prepare("INSERT INTO journal_entry_lines (entry_id, account_id, debit, credit) VALUES (?, ?, ?, ?)");
+      for (const line of data.lines) {
+        lineStmt.run(entryId, line.account_id, line.debit || 0, line.credit || 0);
+      }
+      return entryId;
+    });
+    return transaction();
+  };
+
+  app.post("/api/generate-business-vouchers", (req, res) => {
+    const { type, ids } = req.body;
+    let count = 0;
+    try {
+      if (type === 'orders') {
+        const orders = db.prepare(`SELECT * FROM orders WHERE id IN (${ids.join(',')}) AND voucher_id IS NULL`).all() as any[];
+        orders.forEach(order => {
+          const taxAmount = order.total * (order.tax_rate / (100 + order.tax_rate));
+          const netAmount = order.total - taxAmount;
+          const voucherId = generateVoucher({
+            date: order.date,
+            voucher_no: `记-${order.date.replace(/-/g, '').substring(2)}-${order.id.toString().padStart(3, '0')}`,
+            notes: `销售: ${order.customer} - ${order.product}`,
+            lines: [
+              { account_id: '1122', debit: order.total, credit: 0 }, // 应收账款
+              { account_id: '500101', debit: 0, credit: netAmount }, // 主营业务收入
+              { account_id: '222102', debit: 0, credit: taxAmount }, // 应交增值税-销项
+            ]
+          });
+          db.prepare("UPDATE orders SET voucher_id = ? WHERE id = ?").run(voucherId, order.id);
+          count++;
+        });
+      } else if (type === 'incomes') {
+        const incomes = db.prepare(`SELECT * FROM incomes WHERE id IN (${ids.join(',')}) AND voucher_id IS NULL`).all() as any[];
+        incomes.forEach(income => {
+          const bankAccount = income.bank.includes('现金') ? '1001' : '1002';
+          const voucherId = generateVoucher({
+            date: income.date,
+            voucher_no: `收-${income.date.replace(/-/g, '').substring(2)}-${income.id.toString().padStart(3, '0')}`,
+            notes: `收款: ${income.customer}`,
+            lines: [
+              { account_id: bankAccount, debit: income.amount, credit: 0 },
+              { account_id: '1122', debit: 0, credit: income.amount }, // 冲减应收
+            ]
+          });
+          db.prepare("UPDATE incomes SET voucher_id = ? WHERE id = ?").run(voucherId, income.id);
+          count++;
+        });
+      }
+      res.json({ success: true, count });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.post("/api/generate-closing-vouchers", (req, res) => {
     const { month } = req.body; // YYYY-MM
     if (isPeriodClosed(month)) return res.status(403).json({ error: "该月份已结账，无法生成凭证" });
@@ -489,6 +584,47 @@ try {
       },
       net: salesCash - (costCash + expenseCash) - assetPurchase
     });
+  });
+
+  app.get("/api/dupont-metrics", (req, res) => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const monthStart = today.substring(0, 7) + '-01';
+      
+      // 1. Revenue
+      const revenue = db.prepare("SELECT SUM(total) as total FROM orders WHERE date <= ?").get(today).total || 0;
+      
+      // 2. Net Profit (Revenue - Cost - Expense)
+      const cost = db.prepare("SELECT SUM(amount) as total FROM expenses WHERE account_id LIKE '5401%' AND date <= ?").get(today).total || 0;
+      const expense = db.prepare("SELECT SUM(amount) as total FROM expenses WHERE (account_id LIKE '6601%' OR account_id LIKE '6602%' OR account_id LIKE '6603%') AND date <= ?").get(today).total || 0;
+      const netProfit = revenue - cost - expense;
+      
+      // 3. Total Assets (Cash + Bank + Receivables + Inventory + Fixed Assets)
+      const cash = db.prepare("SELECT SUM(amount) as total FROM incomes WHERE method IN (SELECT name FROM payment_methods WHERE type = 'Cash')").get().total || 0 - db.prepare("SELECT SUM(amount) as total FROM expenses WHERE method IN (SELECT name FROM payment_methods WHERE type = 'Cash')").get().total || 0;
+      const bank = db.prepare("SELECT SUM(amount) as total FROM incomes WHERE method IN (SELECT name FROM payment_methods WHERE type = 'Bank' OR type = 'Digital')").get().total || 0 - db.prepare("SELECT SUM(amount) as total FROM expenses WHERE method IN (SELECT name FROM payment_methods WHERE type = 'Bank' OR type = 'Digital')").get().total || 0;
+      const receivables = db.prepare("SELECT SUM(total) as total FROM orders").get().total || 0 - db.prepare("SELECT SUM(amount) as total FROM incomes").get().total || 0;
+      const inventoryVal = db.prepare("SELECT SUM(stock * unit_cost) as total FROM inventory").get().total || 0;
+      const fixedAssets = db.prepare("SELECT SUM(cost) as total FROM fixed_assets").get().total || 0;
+      const accumulatedDep = 0; // Simplified for this call
+      const totalAssets = Math.max(0, cash + bank + receivables + inventoryVal + fixedAssets - accumulatedDep);
+      
+      // 4. Equity (Total Assets - Liabilities)
+      const payables = db.prepare("SELECT SUM(amount) as total FROM supplier_bills").get().total || 0 - db.prepare("SELECT SUM(amount) as total FROM expenses WHERE supplier IS NOT NULL").get().total || 0;
+      const equity = totalAssets - Math.max(0, payables);
+      
+      res.json({
+        revenue,
+        netProfit,
+        totalAssets,
+        equity,
+        netProfitMargin: revenue > 0 ? (netProfit / revenue) : 0,
+        assetTurnover: totalAssets > 0 ? (revenue / totalAssets) : 0,
+        equityMultiplier: equity > 0 ? (totalAssets / equity) : 1,
+        roe: equity > 0 ? (netProfit / equity) : 0
+      });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   app.get("/api/multi-column-ledger/:parentId", (req, res) => {

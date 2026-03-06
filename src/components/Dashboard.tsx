@@ -68,13 +68,14 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
   const [creditAlerts, setCreditAlerts] = useState<any[]>([]);
   const [lowStock, setLowStock] = useState<any[]>([]);
   const [productionSummary, setProductionSummary] = useState<any[]>([]);
+  const [dupont, setDupont] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [statsRes, bankRes, overdueRes, topRes, predictRes, trendRes, expenseRes, healthRes, workerRes, valuationRes, creditRes, lowStockRes, prodRes] = await Promise.all([
+        const [statsRes, bankRes, overdueRes, topRes, predictRes, trendRes, expenseRes, healthRes, workerRes, valuationRes, creditRes, lowStockRes, prodRes, dupontRes] = await Promise.all([
           fetch("/api/stats").then(res => res.json()),
           fetch("/api/bank-balances").then(res => res.json()),
           fetch("/api/overdue").then(res => res.json()),
@@ -87,7 +88,8 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
           fetch("/api/inventory-valuation").then(res => res.json()),
           fetch("/api/credit-alerts").then(res => res.json()),
           fetch("/api/low-stock").then(res => res.json()),
-          fetch("/api/production-summary").then(res => res.json())
+          fetch("/api/production-summary").then(res => res.json()),
+          fetch("/api/dupont-metrics").then(res => res.json())
         ]);
         setStats(statsRes);
         setBankBalances(bankRes);
@@ -102,6 +104,7 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
         setCreditAlerts(creditRes);
         setLowStock(lowStockRes);
         setProductionSummary(prodRes);
+        setDupont(dupontRes);
       } catch (e) {
         showToast("加载数据失败", "error");
       } finally {
@@ -540,6 +543,53 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
           >
             查看完整工资报表 →
           </button>
+        </div>
+
+        {/* DuPont Analysis */}
+        <div className="lg:col-span-2 bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 transition-colors duration-300">
+          <h3 className="text-lg font-semibold mb-6 flex items-center dark:text-slate-100">
+            <TrendingUp className="mr-2 text-indigo-500" size={20} />
+            杜邦财务分析 (DuPont Analysis)
+          </h3>
+          {dupont && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+              <div className="space-y-6">
+                <div className="flex justify-between items-center p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
+                  <span className="text-sm font-medium text-indigo-700 dark:text-indigo-300">净资产收益率 (ROE)</span>
+                  <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400 font-mono">{(dupont.roe * 100).toFixed(2)}%</span>
+                </div>
+                <div className="grid grid-cols-1 gap-4">
+                  <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg flex justify-between items-center">
+                    <span className="text-xs text-slate-500 dark:text-slate-400">销售净利率</span>
+                    <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{(dupont.netProfitMargin * 100).toFixed(2)}%</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg flex justify-between items-center">
+                    <span className="text-xs text-slate-500 dark:text-slate-400">资产周转率</span>
+                    <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{dupont.assetTurnover.toFixed(2)}次</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg flex justify-between items-center">
+                    <span className="text-xs text-slate-500 dark:text-slate-400">权益乘数</span>
+                    <span className="text-sm font-bold text-amber-600 dark:text-amber-400">{dupont.equityMultiplier.toFixed(2)}倍</span>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-4">
+                <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                  杜邦分析法揭示了企业盈利能力的根源：
+                  <br /><br />
+                  1. <span className="font-bold text-slate-700 dark:text-slate-300">销售净利率</span> 反映了产品的竞争力和成本管控能力。
+                  <br />
+                  2. <span className="font-bold text-slate-700 dark:text-slate-300">资产周转率</span> 反映了工厂资产的使用效率（产值/总资产）。
+                  <br />
+                  3. <span className="font-bold text-slate-700 dark:text-slate-300">权益乘数</span> 反映了财务杠杆的使用情况。
+                </p>
+                <div className="p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg border border-emerald-100 dark:border-emerald-900/30 text-[10px] text-emerald-700 dark:text-emerald-300">
+                  <Sparkles size={12} className="inline mr-1 mb-0.5" />
+                  当前 ROE 为 {(dupont.roe * 100).toFixed(2)}%，说明每 1 元自有资金带来了 {dupont.roe.toFixed(3)} 元的净收益。
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Monthly Trend Chart */}

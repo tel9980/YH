@@ -251,6 +251,22 @@ try {
     }
   });
 
+  app.delete("/api/journal-entries/:id", (req, res) => {
+    try {
+      const entry = db.prepare("SELECT * FROM journal_entries WHERE id = ?").get(req.params.id) as any;
+      if (entry && isPeriodClosed(entry.date)) return res.status(403).json({ error: "该月份已结账，无法删除凭证" });
+      
+      const transaction = db.transaction(() => {
+        db.prepare("DELETE FROM journal_entry_lines WHERE entry_id = ?").run(req.params.id);
+        db.prepare("DELETE FROM journal_entries WHERE id = ?").run(req.params.id);
+      });
+      transaction();
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.get("/api/vouchers", (req, res) => {
     // Generate virtual vouchers from incomes and expenses
     const incomes = db.prepare("SELECT id, date, customer as entity, amount, method, notes, '收款凭证' as type, '1122' as debit_account, '5001' as credit_account FROM incomes").all() as any[];
@@ -824,27 +840,39 @@ try {
       const today = new Date().toISOString().split('T')[0];
       const monthStart = today.substring(0, 7) + '-01';
       
-      // 1. Revenue
-      const revenue = db.prepare("SELECT SUM(total) as total FROM orders WHERE date <= ?").get(today).total || 0;
-      
-      // 2. Net Profit (Revenue - Cost - Expense)
-      const cost = db.prepare("SELECT SUM(amount) as total FROM expenses WHERE account_id LIKE '5401%' AND date <= ?").get(today).total || 0;
-      const expense = db.prepare("SELECT SUM(amount) as total FROM expenses WHERE (account_id LIKE '6601%' OR account_id LIKE '6602%' OR account_id LIKE '6603%') AND date <= ?").get(today).total || 0;
-      const netProfit = revenue - cost - expense;
-      
-      // 3. Total Assets (Cash + Bank + Receivables + Inventory + Fixed Assets)
-      const cash = db.prepare("SELECT SUM(amount) as total FROM incomes WHERE method IN (SELECT name FROM payment_methods WHERE type = 'Cash')").get().total || 0 - db.prepare("SELECT SUM(amount) as total FROM expenses WHERE method IN (SELECT name FROM payment_methods WHERE type = 'Cash')").get().total || 0;
-      const bank = db.prepare("SELECT SUM(amount) as total FROM incomes WHERE method IN (SELECT name FROM payment_methods WHERE type = 'Bank' OR type = 'Digital')").get().total || 0 - db.prepare("SELECT SUM(amount) as total FROM expenses WHERE method IN (SELECT name FROM payment_methods WHERE type = 'Bank' OR type = 'Digital')").get().total || 0;
-      const receivables = db.prepare("SELECT SUM(total) as total FROM orders").get().total || 0 - db.prepare("SELECT SUM(amount) as total FROM incomes").get().total || 0;
-      const inventoryVal = db.prepare("SELECT SUM(stock * unit_cost) as total FROM inventory").get().total || 0;
-      const fixedAssets = db.prepare("SELECT SUM(cost) as total FROM fixed_assets").get().total || 0;
-      const accumulatedDep = 0; // Simplified for this call
-      const totalAssets = Math.max(0, cash + bank + receivables + inventoryVal + fixedAssets - accumulatedDep);
-      
-      // 4. Equity (Total Assets - Liabilities)
-      const payables = db.prepare("SELECT SUM(amount) as total FROM supplier_bills").get().total || 0 - db.prepare("SELECT SUM(amount) as total FROM expenses WHERE supplier IS NOT NULL").get().total || 0;
-      const equity = totalAssets - Math.max(0, payables);
-      
+      // 1. 专业逻辑：基于会计科目余额的杜邦分析
+      // 获取当前时点的试算平衡表 (所有科目累计余额)
+      const balances = db.prepare(`
+        SELECT 
+          a.id, a.name, a.type,
+          COALESCE(SUM(l.debit), 0) as d, 
+          COALESCE(SUM(l.credit), 0) as c
+        FROM accounts a
+        LEFT JOIN journal_entry_lines l ON a.id = l.account_id
+        LEFT JOIN journal_entries e ON l.entry_id = e.id
+        WHERE e.date <= ? OR e.date IS NULL
+        GROUP BY a.id
+      `).all(today) as any[];
+
+      const getBalance = (id: string) => {
+        const b = balances.find(x => x.id === id || x.id.startsWith(id));
+        if (!b) return 0;
+        // 资产/成本/费用类: 借 - 贷
+        if (['asset', 'cost', 'expense'].includes(b.type)) return b.d - b.c;
+        // 负债/权益/收入类: 贷 - 借
+        return b.c - b.d;
+      };
+
+      const revenue = balances.filter(x => x.id.startsWith('5001')).reduce((sum, x) => sum + (x.c - x.d), 0);
+      const netProfit = balances.filter(x => ['revenue', 'cost', 'expense'].includes(x.type)).reduce((sum, x) => {
+        if (x.type === 'revenue') return sum + (x.c - x.d);
+        return sum - (x.d - x.c);
+      }, 0);
+
+      const totalAssets = balances.filter(x => x.type === 'asset').reduce((sum, x) => sum + (x.d - x.c), 0);
+      const equity = balances.filter(x => x.type === 'equity').reduce((sum, x) => sum + (x.c - x.d), 0);
+      const totalLiabilities = totalAssets - equity;
+
       res.json({
         revenue,
         netProfit,
@@ -958,6 +986,17 @@ try {
     try {
       const info = db.prepare("INSERT INTO profit_distributions (date, amount, type, notes) VALUES (?, ?, ?, ?)").run(date, amount, type, notes);
       res.json({ success: true, id: info.lastInsertRowid });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/profit-distributions/:id", (req, res) => {
+    try {
+      const dist = db.prepare("SELECT * FROM profit_distributions WHERE id = ?").get(req.params.id) as any;
+      if (dist && isPeriodClosed(dist.date)) return res.status(403).json({ error: "该月份已结账，无法删除分配记录" });
+      db.prepare("DELETE FROM profit_distributions WHERE id = ?").run(req.params.id);
+      res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
@@ -1708,6 +1747,8 @@ async function startServer() {
 
   app.patch("/api/inventory/:id/stock", (req, res) => {
     const { delta, type, notes } = req.body;
+    const now = new Date().toISOString().split('T')[0];
+    if (isPeriodClosed(now)) return res.status(403).json({ error: "当前月份已结账，无法进行库存调整" });
     try {
       const item = db.prepare("SELECT name FROM inventory WHERE id = ?").get(req.params.id);
       db.prepare("UPDATE inventory SET stock = stock + ? WHERE id = ?").run(delta, req.params.id);
@@ -2164,13 +2205,21 @@ async function startServer() {
 
   app.post("/api/material-requisitions", (req, res) => {
     const { date, item_name, qty, worker, notes } = req.body;
-    db.prepare("INSERT INTO material_requisitions (date, item_name, qty, worker, notes) VALUES (?, ?, ?, ?, ?)").run(date, item_name, qty, worker, notes);
-    // Deduct from inventory
-    db.prepare("UPDATE inventory SET stock = stock - ? WHERE name = ?").run(qty, item_name);
-    db.prepare("INSERT INTO inventory_transactions (item_name, timestamp, type, delta, notes) VALUES (?, ?, '领料', ?, ?)")
-      .run(item_name, new Date().toISOString(), -qty, `领料人: ${worker}, 备注: ${notes}`);
-    logAction("领料录入", `领料项目: ${item_name}, 数量: ${qty}, 领料人: ${worker}`);
-    res.json({ success: true });
+    if (isPeriodClosed(date)) return res.status(403).json({ error: "该月份已结账，无法进行领料录入" });
+    try {
+      const transaction = db.transaction(() => {
+        db.prepare("INSERT INTO material_requisitions (date, item_name, qty, worker, notes) VALUES (?, ?, ?, ?, ?)").run(date, item_name, qty, worker, notes);
+        // Deduct from inventory
+        db.prepare("UPDATE inventory SET stock = stock - ? WHERE name = ?").run(qty, item_name);
+        db.prepare("INSERT INTO inventory_transactions (item_name, timestamp, type, delta, notes) VALUES (?, ?, '领料', ?, ?)")
+          .run(item_name, new Date().toISOString(), -qty, `领料人: ${worker}, 备注: ${notes}`);
+      });
+      transaction();
+      logAction("领料录入", `领料项目: ${item_name}, 数量: ${qty}, 领料人: ${worker}`);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   app.patch("/api/customers/:id/credit-limit", (req, res) => {

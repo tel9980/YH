@@ -12,7 +12,16 @@ export default function SupplierBillEntry() {
   const [supplier, setSupplier] = useState("");
   const [category, setCategory] = useState("");
   const [amount, setAmount] = useState(0);
+  const [qty, setQty] = useState(0);
+  const [unitPrice, setUnitPrice] = useState(0);
   const [notes, setNotes] = useState("");
+
+  // Auto calculate amount
+  useEffect(() => {
+    if (qty > 0 && unitPrice > 0) {
+      setAmount(Number((qty * unitPrice).toFixed(2)));
+    }
+  }, [qty, unitPrice]);
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
@@ -37,11 +46,13 @@ export default function SupplierBillEntry() {
       const res = await fetch("/api/supplier-bills", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date, supplier, category, amount, notes })
+        body: JSON.stringify({ date, supplier, category, amount, notes, qty, unit_price: unitPrice })
       });
       if (res.ok) {
-        showToast("应付账单保存成功！", "success");
+        showToast("应付账单保存并自动更新库存成本！", "success");
         setAmount(0);
+        setQty(0);
+        setUnitPrice(0);
         setNotes("");
       } else {
         showToast("保存失败，请重试", "error");
@@ -88,7 +99,7 @@ export default function SupplierBillEntry() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase mb-2">分类</label>
+            <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase mb-2">分类 (对应存货项目)</label>
             <select 
               value={category} 
               onChange={e => setCategory(e.target.value)}
@@ -100,33 +111,55 @@ export default function SupplierBillEntry() {
             </select>
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase mb-2">账单金额</label>
+            <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase mb-2">备注</label>
             <input 
-              type="number" 
-              step="0.01"
-              value={amount} 
-              onChange={e => setAmount(parseFloat(e.target.value) || 0)}
-              className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none font-mono dark:text-slate-100"
+              type="text"
+              value={notes} 
+              onChange={e => setNotes(e.target.value)}
+              className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none dark:text-slate-100"
+              placeholder="采购详情..."
             />
           </div>
         </div>
 
-        <div>
-          <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase mb-2">备注</label>
-          <textarea 
-            value={notes} 
-            onChange={e => setNotes(e.target.value)}
-            className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none h-24 dark:text-slate-100"
-            placeholder="采购详情或备注..."
-          />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-slate-100 dark:border-slate-800">
+          <div>
+            <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase mb-2">数量 (入库)</label>
+            <input 
+              type="number" 
+              step="0.01"
+              value={qty} 
+              onChange={e => setQty(Number(e.target.value))}
+              className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none dark:text-slate-100 font-mono"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase mb-2">单价 (含税)</label>
+            <input 
+              type="number" 
+              step="0.0001"
+              value={unitPrice} 
+              onChange={e => setUnitPrice(Number(e.target.value))}
+              className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none dark:text-slate-100 font-mono"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase mb-2 text-indigo-600 font-bold">账单总金额</label>
+            <input 
+              type="number" 
+              value={amount} 
+              onChange={e => setAmount(Number(e.target.value))}
+              className="w-full px-4 py-2 bg-indigo-50/30 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900/30 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none dark:text-slate-100 font-mono text-indigo-600 font-bold"
+            />
+          </div>
         </div>
 
         <button 
           type="submit"
-          className="w-full bg-indigo-600 dark:bg-indigo-500 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 dark:hover:bg-indigo-600 transition-all flex items-center justify-center shadow-lg shadow-indigo-100 dark:shadow-none"
+          className="w-full bg-indigo-600 dark:bg-indigo-500 text-white py-4 rounded-xl font-bold hover:bg-indigo-700 dark:hover:bg-indigo-600 transition-all flex items-center justify-center shadow-lg shadow-indigo-100 dark:shadow-none mt-8"
         >
-          <Save size={20} className="mr-2" />
-          保存账单
+          <Save className="mr-2" size={20} />
+          保存并更新成本
         </button>
       </form>
     </div>

@@ -56,7 +56,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, customer TEXT, product TEXT, spec TEXT, qty REAL, unit TEXT, price REAL, total REAL, outsource TEXT, notes TEXT, fixture_loss REAL DEFAULT 0, attachment_url TEXT, invoiced INTEGER DEFAULT 0, tax_rate REAL DEFAULT 0, status TEXT DEFAULT '待产', worker TEXT, reconciled INTEGER DEFAULT 0, voucher_id INTEGER, invoice_no TEXT, invoice_date TEXT);
   CREATE TABLE IF NOT EXISTS incomes (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, customer TEXT, amount REAL, bank TEXT, notes TEXT, voucher_id INTEGER);
   CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, category TEXT, supplier TEXT, amount REAL, method TEXT, notes TEXT, tax_rate REAL DEFAULT 0, account_id TEXT, voucher_id INTEGER);
-  CREATE TABLE IF NOT EXISTS supplier_bills (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, supplier TEXT, category TEXT, amount REAL, notes TEXT, voucher_id INTEGER);
+  CREATE TABLE IF NOT EXISTS supplier_bills (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, supplier TEXT, category TEXT, amount REAL, notes TEXT, voucher_id INTEGER, qty REAL DEFAULT 0, unit_price REAL DEFAULT 0);
   CREATE TABLE IF NOT EXISTS inventory (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, stock REAL, unit TEXT, low_threshold REAL, unit_cost REAL DEFAULT 0);
   CREATE TABLE IF NOT EXISTS inventory_transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, item_name TEXT, timestamp TEXT, type TEXT, delta REAL, notes TEXT);
   CREATE TABLE IF NOT EXISTS archives (id INTEGER PRIMARY KEY AUTOINCREMENT, month TEXT UNIQUE, archived_at TEXT);
@@ -286,6 +286,60 @@ try {
 
     const journal = [...incomes, ...expenses].sort((a, b) => a.date.localeCompare(b.date));
     res.json(journal);
+  });
+
+  app.get("/api/subsidiary-ledger/customer/:name", (req, res) => {
+    const { name } = req.params;
+    const { startDate, endDate } = req.query;
+    try {
+      // 1. 获取销售单
+      const orders = db.prepare("SELECT date, product as notes, total as debit, 0 as credit, '销售' as type FROM orders WHERE customer = ? AND date BETWEEN ? AND ?").all(name, startDate, endDate) as any[];
+      // 2. 获取收款单
+      const incomes = db.prepare("SELECT date, notes, 0 as debit, amount as credit, '收款' as type FROM incomes WHERE customer = ? AND date BETWEEN ? AND ?").all(name, startDate, endDate) as any[];
+      
+      const transactions = [...orders, ...incomes].sort((a, b) => a.date.localeCompare(b.date));
+      
+      // 3. 计算期初余额 (应收账款 1122)
+      const prevOrders = db.prepare("SELECT SUM(total) as total FROM orders WHERE customer = ? AND date < ?").get(name, startDate).total || 0;
+      const prevIncomes = db.prepare("SELECT SUM(amount) as total FROM incomes WHERE customer = ? AND date < ?").get(name, startDate).total || 0;
+      let balance = prevOrders - prevIncomes;
+
+      const data = transactions.map(t => {
+        balance += (t.debit - t.credit);
+        return { ...t, balance };
+      });
+
+      res.json({ openingBalance: prevOrders - prevIncomes, data });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/subsidiary-ledger/supplier/:name", (req, res) => {
+    const { name } = req.params;
+    const { startDate, endDate } = req.query;
+    try {
+      // 1. 获取供应商账单
+      const bills = db.prepare("SELECT date, category as notes, 0 as debit, amount as credit, '账单' as type FROM supplier_bills WHERE supplier = ? AND date BETWEEN ? AND ?").all(name, startDate, endDate) as any[];
+      // 2. 获取付款记录 (在 expenses 中 supplier 匹配)
+      const payments = db.prepare("SELECT date, notes, amount as debit, 0 as credit, '付款' as type FROM expenses WHERE supplier = ? AND date BETWEEN ? AND ?").all(name, startDate, endDate) as any[];
+      
+      const transactions = [...bills, ...payments].sort((a, b) => a.date.localeCompare(b.date));
+      
+      // 3. 计算期初余额 (应付账款 2202)
+      const prevBills = db.prepare("SELECT SUM(amount) as total FROM supplier_bills WHERE supplier = ? AND date < ?").get(name, startDate).total || 0;
+      const prevPayments = db.prepare("SELECT SUM(amount) as total FROM expenses WHERE supplier = ? AND date < ?").get(name, startDate).total || 0;
+      let balance = prevBills - prevPayments; // 负债类: 贷方 - 借方
+
+      const data = transactions.map(t => {
+        balance += (t.credit - t.debit);
+        return { ...t, balance };
+      });
+
+      res.json({ openingBalance: prevBills - prevPayments, data });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   app.get("/api/trial-balance", (req, res) => {
@@ -635,29 +689,62 @@ try {
 
   app.get("/api/cash-flow", (req, res) => {
     const { startDate, endDate } = req.query;
-    const params = [startDate, endDate];
-
-    // Operating Activities
-    const salesCash = db.prepare("SELECT SUM(amount) as total FROM incomes WHERE date BETWEEN ? AND ?").get(params).total || 0;
-    const costCash = db.prepare("SELECT SUM(amount) as total FROM expenses WHERE account_id LIKE '5401%' AND date BETWEEN ? AND ?").get(params).total || 0;
-    const expenseCash = db.prepare("SELECT SUM(amount) as total FROM expenses WHERE (account_id LIKE '6601%' OR account_id LIKE '6602%') AND date BETWEEN ? AND ?").get(params).total || 0;
     
-    // Investing Activities
-    const assetPurchase = db.prepare("SELECT SUM(cost) as total FROM fixed_assets WHERE acquisition_date BETWEEN ? AND ?").get(params).total || 0;
+    try {
+      // 1. 获取所有涉及现金/银行存款的凭证行
+      const cashAccounts = ['1001', '1002'];
+      const cashFlowEntries = db.prepare(`
+        SELECT DISTINCT e.id, e.date, e.notes
+        FROM journal_entries e
+        JOIN journal_entry_lines l ON e.id = l.entry_id
+        WHERE l.account_id IN (?, ?) AND e.date BETWEEN ? AND ?
+      `).all(cashAccounts[0], cashAccounts[1], startDate, endDate) as any[];
 
-    res.json({
-      operating: {
-        in: salesCash,
-        out: costCash + expenseCash,
-        net: salesCash - (costCash + expenseCash)
-      },
-      investing: {
-        in: 0,
-        out: assetPurchase,
-        net: -assetPurchase
-      },
-      net: salesCash - (costCash + expenseCash) - assetPurchase
-    });
+      const results = {
+        operating: { in: 0, out: 0, net: 0, details: [] as any[] },
+        investing: { in: 0, out: 0, net: 0, details: [] as any[] },
+        financing: { in: 0, out: 0, net: 0, details: [] as any[] },
+        net: 0
+      };
+
+      for (const entry of cashFlowEntries) {
+        const lines = db.prepare("SELECT * FROM journal_entry_lines WHERE entry_id = ?").all(entry.id) as any[];
+        
+        // 计算该凭证的净现金流 (借方 - 贷方，针对 1001/1002)
+        const netCash = lines
+          .filter(l => cashAccounts.includes(l.account_id))
+          .reduce((sum, l) => sum + (l.debit - l.credit), 0);
+
+        if (Math.abs(netCash) < 0.01) continue;
+
+        // 识别现金流类别 (根据对方科目)
+        const otherLines = lines.filter(l => !cashAccounts.includes(l.account_id));
+        const primaryOtherAccount = otherLines.length > 0 ? otherLines[0].account_id : '';
+        
+        let category: 'operating' | 'investing' | 'financing' = 'operating';
+        if (primaryOtherAccount.startsWith('1601')) category = 'investing';
+        else if (primaryOtherAccount.startsWith('4001')) category = 'financing';
+
+        const detail = { date: entry.date, notes: entry.notes, amount: Math.abs(netCash) };
+        
+        if (netCash > 0) {
+          results[category].in += netCash;
+          results[category].details.push({ ...detail, type: 'in' });
+        } else {
+          results[category].out += Math.abs(netCash);
+          results[category].details.push({ ...detail, type: 'out' });
+        }
+      }
+
+      results.operating.net = results.operating.in - results.operating.out;
+      results.investing.net = results.investing.in - results.investing.out;
+      results.financing.net = results.financing.in - results.financing.out;
+      results.net = results.operating.net + results.investing.net + results.financing.net;
+
+      res.json(results);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   app.get("/api/financial-statements", (req, res) => {
@@ -1504,12 +1591,34 @@ async function startServer() {
   });
 
   app.post("/api/supplier-bills", (req, res) => {
-    const { date, supplier, category, amount, notes } = req.body;
+    const { date, supplier, category, amount, notes, qty, unit_price } = req.body;
     if (isPeriodClosed(date)) return res.status(403).json({ error: "该月份已结账，无法新增供应商账单" });
     try {
-      db.prepare("INSERT OR IGNORE INTO suppliers (name) VALUES (?)").run(supplier);
-      const info = db.prepare("INSERT INTO supplier_bills (date, supplier, category, amount, notes) VALUES (?, ?, ?, ?, ?)").run(date, supplier, category, amount, notes);
-      res.json({ success: true, id: info.lastInsertRowid });
+      const transaction = db.transaction(() => {
+        db.prepare("INSERT OR IGNORE INTO suppliers (name) VALUES (?)").run(supplier);
+        const info = db.prepare("INSERT INTO supplier_bills (date, supplier, category, amount, notes, qty, unit_price) VALUES (?, ?, ?, ?, ?, ?, ?)").run(date, supplier, category, amount, notes, qty || 0, unit_price || 0);
+        
+        // 专业逻辑：移动加权平均成本核算 (Weighted Average Costing)
+        // 假设 category 对应 inventory 表中的 item_name
+        const item = db.prepare("SELECT * FROM inventory WHERE name = ?").get(category) as any;
+        if (item && qty > 0) {
+          const oldStock = item.stock || 0;
+          const oldCost = item.unit_cost || 0;
+          const newQty = qty;
+          const newCost = unit_price;
+          
+          // 公式: (旧库存 * 旧成本 + 新入库 * 新成本) / (旧库存 + 新入库)
+          const totalValue = (oldStock * oldCost) + (newQty * newCost);
+          const totalQty = oldStock + newQty;
+          const weightedAverageCost = totalQty > 0 ? (totalValue / totalQty) : newCost;
+          
+          db.prepare("UPDATE inventory SET stock = ?, unit_cost = ? WHERE id = ?").run(totalQty, weightedAverageCost, item.id);
+          db.prepare("INSERT INTO inventory_transactions (item_name, timestamp, type, delta, notes) VALUES (?, ?, ?, ?, ?)").run(category, new Date().toISOString(), "采购入库", newQty, `供应商: ${supplier}`);
+        }
+        return info.lastInsertRowid;
+      });
+      const id = transaction();
+      res.json({ success: true, id });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }

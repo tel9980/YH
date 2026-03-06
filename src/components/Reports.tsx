@@ -29,7 +29,14 @@ import {
   Check,
   CheckSquare,
   Square,
-  MessageSquare
+  MessageSquare,
+  UserCheck,
+  Wallet,
+  ShieldCheck,
+  FileJson,
+  ArrowDownLeft,
+  ArrowUpRight,
+  CheckCircle2
 } from "lucide-react";
 import { 
   PieChart, 
@@ -69,6 +76,9 @@ export default function Reports() {
   const [financialStatements, setFinancialStatements] = useState<any>(null);
   const [trialBalance, setTrialBalance] = useState<any[]>([]);
   const [cashFlowData, setCashFlowData] = useState<any>(null);
+  const [subsidiaryLedger, setSubsidiaryLedger] = useState<any>(null);
+  const [selectedEntity, setSelectedEntity] = useState("");
+  const [entityType, setEntityType] = useState<'customer' | 'supplier'>('customer');
   const [multiColLedger, setMultiColLedger] = useState<{ columns: any[], data: any[] } | null>(null);
   const [selectedParentAccount, setSelectedParentAccount] = useState("6602"); // Default to Management Expenses
   const [selectedLedgerAccount, setSelectedLedgerAccount] = useState<string | null>(null);
@@ -198,6 +208,14 @@ export default function Reports() {
     doc.save(`${fileName}.pdf`);
     showToast("PDF 导出成功", "success");
   };
+
+  useEffect(() => {
+    if (selectedEntity) {
+      fetch(`/api/subsidiary-ledger/${entityType}/${selectedEntity}?startDate=${startDate}&endDate=${endDate}`)
+        .then(res => res.json())
+        .then(setSubsidiaryLedger);
+    }
+  }, [selectedEntity, entityType, startDate, endDate]);
 
   const handleExportDetails = () => {
     const data = [
@@ -445,59 +463,160 @@ export default function Reports() {
     return (
       <div className="bg-white dark:bg-slate-900 p-10 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 max-w-4xl mx-auto transition-colors duration-300">
         <div className="text-center mb-10">
-          <h2 className="text-2xl font-bold dark:text-slate-100 uppercase tracking-tight">现金流量简表 (Cash Flow)</h2>
-          <p className="text-slate-500 dark:text-slate-400 mt-2 font-mono">统计周期: {startDate} 至 {endDate}</p>
+          <h2 className="text-2xl font-bold dark:text-slate-100 uppercase tracking-tight">现金流量表 (Cash Flow Statement)</h2>
+          <p className="text-slate-500 dark:text-slate-400 mt-2 font-mono">日期: {startDate} 至 {endDate} | 编制方法: 凭证直接法</p>
         </div>
 
         <div className="space-y-8">
           {/* Operating */}
           <section className="space-y-4">
-            <h3 className="text-lg font-black border-l-4 border-emerald-500 pl-4 py-1 bg-emerald-50/50 dark:bg-emerald-900/10">一、经营活动产生的现金流量</h3>
+            <div className="flex justify-between items-center py-3 border-b-2 border-slate-900 dark:border-slate-700">
+              <h3 className="text-base font-black">一、经营活动产生的现金流量：</h3>
+              <span className={cn("text-base font-mono font-black", cashFlowData.operating.net >= 0 ? "text-emerald-600" : "text-rose-600")}>
+                {formatCurrency(cashFlowData.operating.net)}
+              </span>
+            </div>
             <div className="pl-8 space-y-3">
               <div className="flex justify-between items-center text-sm">
-                <span className="text-slate-600 dark:text-slate-400">销售商品、提供劳务收到的现金</span>
-                <span className="font-mono text-emerald-600">{formatCurrency(cashFlowData.operating.in)}</span>
+                <span className="text-slate-600 dark:text-slate-400">经营活动现金流入 (销售商品、提供劳务)</span>
+                <span className="font-mono text-emerald-600">+{formatCurrency(cashFlowData.operating.in)}</span>
               </div>
               <div className="flex justify-between items-center text-sm">
-                <span className="text-slate-600 dark:text-slate-400">购买商品、接受劳务支付的现金</span>
-                <span className="font-mono text-rose-500">({formatCurrency(cashFlowData.operating.out)})</span>
-              </div>
-              <div className="flex justify-between items-center pt-2 border-t border-slate-100 dark:border-slate-800 font-bold">
-                <span>经营活动产生的现金流量净额</span>
-                <span className={cn("font-mono", cashFlowData.operating.net >= 0 ? "text-emerald-600" : "text-rose-600")}>
-                  {formatCurrency(cashFlowData.operating.net)}
-                </span>
+                <span className="text-slate-600 dark:text-slate-400">经营活动现金流出 (采购、费用、工资、税费)</span>
+                <span className="font-mono text-rose-500">-{formatCurrency(cashFlowData.operating.out)}</span>
               </div>
             </div>
           </section>
 
           {/* Investing */}
           <section className="space-y-4">
-            <h3 className="text-lg font-black border-l-4 border-indigo-500 pl-4 py-1 bg-indigo-50/50 dark:bg-indigo-900/10">二、投资活动产生的现金流量</h3>
+            <div className="flex justify-between items-center py-3 border-b-2 border-slate-900 dark:border-slate-700">
+              <h3 className="text-base font-black">二、投资活动产生的现金流量：</h3>
+              <span className={cn("text-base font-mono font-black", cashFlowData.investing.net >= 0 ? "text-emerald-600" : "text-rose-600")}>
+                {formatCurrency(cashFlowData.investing.net)}
+              </span>
+            </div>
             <div className="pl-8 space-y-3">
               <div className="flex justify-between items-center text-sm">
-                <span className="text-slate-600 dark:text-slate-400">购建固定资产、无形资产支付的现金</span>
-                <span className="font-mono text-rose-500">({formatCurrency(cashFlowData.investing.out)})</span>
+                <span className="text-slate-600 dark:text-slate-400">购建固定资产支付的现金</span>
+                <span className="font-mono text-rose-500">-{formatCurrency(cashFlowData.investing.out)}</span>
               </div>
-              <div className="flex justify-between items-center pt-2 border-t border-slate-100 dark:border-slate-800 font-bold">
-                <span>投资活动产生的现金流量净额</span>
-                <span className={cn("font-mono", cashFlowData.investing.net >= 0 ? "text-emerald-600" : "text-rose-600")}>
-                  {formatCurrency(cashFlowData.investing.net)}
-                </span>
+            </div>
+          </section>
+
+          {/* Financing */}
+          <section className="space-y-4">
+            <div className="flex justify-between items-center py-3 border-b-2 border-slate-900 dark:border-slate-700">
+              <h3 className="text-base font-black">三、筹资活动产生的现金流量：</h3>
+              <span className={cn("text-base font-mono font-black", cashFlowData.financing.net >= 0 ? "text-emerald-600" : "text-rose-600")}>
+                {formatCurrency(cashFlowData.financing.net)}
+              </span>
+            </div>
+            <div className="pl-8 space-y-3">
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-slate-600 dark:text-slate-400">吸收投资收到的现金</span>
+                <span className="font-mono text-emerald-600">+{formatCurrency(cashFlowData.financing.in)}</span>
               </div>
             </div>
           </section>
 
           {/* Net Increase */}
-          <section className="mt-12 pt-8 border-t-2 border-slate-900 dark:border-slate-700">
-            <div className="flex justify-between items-center">
-              <span className="text-xl font-black uppercase tracking-widest">三、现金及现金等价物净增加额</span>
-              <span className={cn("text-2xl font-black font-mono", cashFlowData.net >= 0 ? "text-emerald-600" : "text-rose-600")}>
-                {formatCurrency(cashFlowData.net)}
-              </span>
-            </div>
+          <section className="mt-12 pt-8 border-t-4 border-slate-900 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-800/30 p-4 rounded-xl">
+            <span className="text-xl font-black uppercase tracking-widest">现金及现金等价物净增加额</span>
+            <span className={cn("text-2xl font-black font-mono", cashFlowData.net >= 0 ? "text-emerald-600" : "text-rose-600")}>
+              {formatCurrency(cashFlowData.net)}
+            </span>
           </section>
         </div>
+      </div>
+    );
+  };
+
+  const renderSubsidiaryLedger = () => {
+    const entities = entityType === 'customer' 
+      ? Array.from(new Set(orders.map(o => o.customer)))
+      : Array.from(new Set(supplierBills.map(b => b.supplier)));
+
+    return (
+      <div className="space-y-6 animate-in fade-in duration-500">
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 flex items-center space-x-4">
+          <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+            <button 
+              onClick={() => { setEntityType('customer'); setSelectedEntity(""); }}
+              className={cn("px-4 py-1.5 rounded-lg text-xs font-bold transition-all", entityType === 'customer' ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-sm" : "text-slate-500")}
+            >客户明细账</button>
+            <button 
+              onClick={() => { setEntityType('supplier'); setSelectedEntity(""); }}
+              className={cn("px-4 py-1.5 rounded-lg text-xs font-bold transition-all", entityType === 'supplier' ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-sm" : "text-slate-500")}
+            >供应商明细账</button>
+          </div>
+          <select 
+            value={selectedEntity} 
+            onChange={(e) => setSelectedEntity(e.target.value)}
+            className="flex-1 px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            <option value="">-- 请选择往来单位 --</option>
+            {entities.map(e => <option key={e} value={e}>{e}</option>)}
+          </select>
+        </div>
+
+        {subsidiaryLedger && (
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
+            <div className="px-8 py-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 flex justify-between items-center">
+              <div>
+                <h3 className="text-lg font-black dark:text-slate-100">{selectedEntity} - 往来明细账</h3>
+                <p className="text-xs text-slate-400 mt-1">统计周期: {startDate} 至 {endDate}</p>
+              </div>
+              <div className="flex items-center space-x-4">
+                <div className="text-right">
+                  <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">当前余额</div>
+                  <div className="text-xl font-black text-indigo-600 font-mono">
+                    {formatCurrency(subsidiaryLedger.data.length > 0 ? subsidiaryLedger.data[subsidiaryLedger.data.length-1].balance : subsidiaryLedger.openingBalance)}
+                  </div>
+                </div>
+                <button onClick={() => exportToExcel(subsidiaryLedger.data, `${selectedEntity}_明细账`)} className="p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-50 transition-colors">
+                  <Download size={18} className="text-slate-500" />
+                </button>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 dark:bg-slate-800">
+                  <tr className="text-slate-400 text-[10px] uppercase tracking-widest font-bold">
+                    <th className="px-6 py-4">日期</th>
+                    <th className="px-6 py-4">类型</th>
+                    <th className="px-6 py-4">摘要</th>
+                    <th className="px-6 py-4 text-right">借方 (增加应收/减少应付)</th>
+                    <th className="px-6 py-4 text-right">贷方 (减少应收/增加应付)</th>
+                    <th className="px-6 py-4 text-right">余额</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
+                  <tr className="bg-slate-50/30 dark:bg-slate-800/30 italic">
+                    <td className="px-6 py-3 font-mono text-slate-400">{startDate}</td>
+                    <td className="px-6 py-3" colSpan={4}>期初余额</td>
+                    <td className="px-6 py-3 text-right font-mono font-bold text-slate-500">{formatCurrency(subsidiaryLedger.openingBalance)}</td>
+                  </tr>
+                  {subsidiaryLedger.data.map((t: any, i: number) => (
+                    <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                      <td className="px-6 py-4 font-mono text-slate-500">{t.date}</td>
+                      <td className="px-6 py-4">
+                        <span className={cn(
+                          "px-2 py-0.5 rounded text-[10px] font-bold",
+                          t.type === '销售' || t.type === '付款' ? "bg-indigo-100 text-indigo-600" : "bg-emerald-100 text-emerald-600"
+                        )}>{t.type}</span>
+                      </td>
+                      <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{t.notes}</td>
+                      <td className="px-6 py-4 text-right font-mono text-indigo-600">{t.debit > 0 ? formatCurrency(t.debit) : "-"}</td>
+                      <td className="px-6 py-4 text-right font-mono text-emerald-600">{t.credit > 0 ? formatCurrency(t.credit) : "-"}</td>
+                      <td className="px-6 py-4 text-right font-mono font-bold dark:text-slate-100">{formatCurrency(t.balance)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -1473,6 +1592,7 @@ export default function Reports() {
           { id: "balance-sheet", label: "资产负债表", icon: History },
           { id: "trial-balance", label: "试算平衡表", icon: CheckSquare },
           { id: "multi-column", label: "多栏明细账", icon: List },
+          { id: "subsidiary-ledger", label: "往来明细账", icon: UserCheck },
           { id: "cash-flow", label: "现金流量表", icon: Wallet },
           { id: "tax", label: "税务管理", icon: FileText },
           { id: "profit-dist", label: "利润分配", icon: HandCoins },
@@ -2321,6 +2441,7 @@ export default function Reports() {
       {activeTab === "balance-sheet" && renderBalanceSheet()}
       {activeTab === "trial-balance" && renderTrialBalance()}
       {activeTab === "multi-column" && renderMultiColumnLedger()}
+      {activeTab === "subsidiary-ledger" && renderSubsidiaryLedger()}
       {activeTab === "cash-flow" && renderCashFlowStatement()}
       {activeTab === "tax" && (
         <div className="space-y-8 animate-in fade-in duration-500">

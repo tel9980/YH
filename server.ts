@@ -11,14 +11,41 @@ import fs from "fs";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const db = new Database("xiaokuaiji.db");
+const isProduction = process.env.NODE_ENV === "production";
+
+// 增强型数据存储策略：优先检查同级目录下的 data 文件夹（实现 U 盘便携模式）
+const getStoragePath = () => {
+  const exeDir = path.dirname(process.execPath);
+  const localDataPath = path.join(exeDir, "data");
+  
+  // 如果在生产环境且当前目录下存在 data 文件夹，则视为“便携模式”
+  if (isProduction && fs.existsSync(localDataPath)) {
+    return localDataPath;
+  }
+  
+  // 否则使用标准的系统应用数据目录
+  return isProduction 
+    ? path.join(process.env.APPDATA || (process.platform === 'darwin' ? process.env.HOME + '/Library/Preferences' : process.env.HOME + "/.local/share"), "xiaokuaiji")
+    : __dirname;
+};
+
+const userDataPath = getStoragePath();
+
+if (!fs.existsSync(userDataPath)) {
+  fs.mkdirSync(userDataPath, { recursive: true });
+}
+
+const dbPath = path.join(userDataPath, "xiaokuaiji.db");
+const db = new Database(dbPath);
 
 // Environment and Directory check for robust deployment
 const checkEnv = () => {
   console.log("------------------------------------------");
-  console.log("🚀 小会计 v5.0 - 系统环境自检中...");
+  console.log("🚀 小会计 v6.5 - 系统环境自检中...");
   console.log(`📅 当前时间: ${new Date().toLocaleString()}`);
   console.log(`📂 工作目录: ${process.cwd()}`);
+  console.log(`🗄️ 数据库路径: ${dbPath}`);
+  console.log(`💡 存储模式: ${userDataPath.includes('AppData') ? '系统安装模式' : '便携/绿色模式'}`);
   
   try {
     // Check database connection
@@ -28,10 +55,10 @@ const checkEnv = () => {
     console.error("❌ 数据库连接失败: ", err.message);
   }
 
-  // Ensure core directories exist
+  // Ensure core directories exist in userDataPath
   const dirs = ["core_data", "core_data/logs", "core_data/finance_bp"];
   dirs.forEach(dir => {
-    const p = path.join(__dirname, dir);
+    const p = path.join(userDataPath, dir);
     if (!fs.existsSync(p)) {
       try {
         fs.mkdirSync(p, { recursive: true });

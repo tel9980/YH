@@ -1,0 +1,19 @@
+directories:
+  output: release
+  buildResources: build
+appId: com.xiaokuaiji.app
+productName: 小会计
+files:
+  - filter:
+      - dist/**/*
+      - electron-main.cjs
+      - server.ts
+      - package.json
+      - node_modules/**/*
+win:
+  target: portable
+  icon: public/icon.ico
+asar: true
+asarUnpack:
+  - node_modules/better-sqlite3
+electronVersion: 40.8.0

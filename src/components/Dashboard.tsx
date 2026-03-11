@@ -39,8 +39,8 @@ import {
   AreaChart,
   Area
 } from "recharts";
-import { Stats, BankBalance, Overdue, TopProduct } from "@/src/types";
-import { formatCurrency, cn } from "@/src/lib/utils";
+import { Stats, BankBalance, Overdue, TopProduct } from "@/types";
+import { formatCurrency, cn } from "@/lib/utils";
 import { useToast } from "./Toast";
 import { Skeleton, CardSkeleton } from "./Skeleton";
 

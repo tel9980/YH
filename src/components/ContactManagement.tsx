@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Customer, Supplier } from "@/src/types";
+import { Customer, Supplier } from "@/types";
 import { Users, Truck, Trash2, Search, Plus, FileUp, ShieldAlert, Edit2, Check } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useToast } from "./Toast";
-import { formatCurrency } from "@/src/lib/utils";
+import { formatCurrency } from "@/lib/utils";
 
 export default function ContactManagement() {
   const { showToast } = useToast();

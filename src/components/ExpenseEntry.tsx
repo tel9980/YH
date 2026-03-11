@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { Supplier } from "@/src/types";
+import { Supplier } from "@/types";
 import { Save, CreditCard } from "lucide-react";
 import { useToast } from "./Toast";
-import { useKeyboardShortcuts } from "@/src/hooks/useKeyboardShortcuts";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 
 interface Account {
   id: string;

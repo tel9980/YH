@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { Customer } from "@/src/types";
+import { Customer } from "@/types";
 import { Save, Wallet, Info } from "lucide-react";
-import { formatCurrency } from "@/src/lib/utils";
+import { formatCurrency } from "@/lib/utils";
 import { useToast } from "./Toast";
-import { useKeyboardShortcuts } from "@/src/hooks/useKeyboardShortcuts";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 
 export default function IncomeEntry() {
   const { showToast } = useToast();

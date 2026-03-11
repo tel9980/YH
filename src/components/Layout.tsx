@@ -29,7 +29,7 @@ import {
   Archive,
   CloudUpload
 } from "lucide-react";
-import { cn } from "@/src/lib/utils";
+import { cn } from "@/lib/utils";
 import { useToast } from "./Toast";
 
 interface LayoutProps {

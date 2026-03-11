@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Order, Income, Expense, Customer, Supplier, SupplierBill, Stats } from "@/src/types";
-import { formatCurrency, cn, toChineseNumeral } from "@/src/lib/utils";
+import { Order, Income, Expense, Customer, Supplier, SupplierBill, Stats } from "@/types";
+import { formatCurrency, cn, toChineseNumeral } from "@/lib/utils";
 import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import "jspdf-autotable";

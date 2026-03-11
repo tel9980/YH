@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { X, Printer, Settings, Upload, Download } from 'lucide-react';
-import { cn } from '@/src/lib/utils';
+import { cn } from '@/lib/utils';
 
 interface PrintPreviewProps {
   reportType: 'balance_sheet' | 'income_statement' | 'cash_flow' | 'financial_ratios' | 'voucher';

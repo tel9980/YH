@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { DollarSign, Save, Package, TrendingUp, AlertCircle } from "lucide-react";
-import { formatCurrency, cn } from "@/src/lib/utils";
-import { ProductCost as ProductCostType, Product } from "@/src/types";
+import { formatCurrency, cn } from "@/lib/utils";
+import { ProductCost as ProductCostType, Product } from "@/types";
 import { useToast } from "./Toast";
 
 export default function ProductCost() {

@@ -2,6 +2,7 @@ node_modules/
 build/
 dist/
 release/
+build_release/
 uploads/
 coverage/
 .DS_Store

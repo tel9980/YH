@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Product, Customer } from "@/src/types";
+import { Product, Customer } from "@/types";
 import { Save, Info, History, Plus, Trash2, Package, FileSpreadsheet, Search } from "lucide-react";
-import { formatCurrency } from "@/src/lib/utils";
+import { formatCurrency } from "@/lib/utils";
 import * as XLSX from "xlsx";
 import { useToast } from "./Toast";
-import { useKeyboardShortcuts } from "@/src/hooks/useKeyboardShortcuts";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 
 interface OrderItem {
   id: string;

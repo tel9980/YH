@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Archive as ArchiveIcon, Lock, CheckCircle2, Calendar, Download, AlertCircle, TrendingUp } from "lucide-react";
 import { useToast } from "./Toast";
-import { cn } from "@/src/lib/utils";
+import { cn } from "@/lib/utils";
 
 interface ArchiveRecord {
   id: number;

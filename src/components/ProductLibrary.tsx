@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Product } from "@/src/types";
-import { formatCurrency } from "@/src/lib/utils";
+import { Product } from "@/types";
+import { formatCurrency } from "@/lib/utils";
 import { Plus, Save, TrendingUp, History, X, FileUp } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useToast } from "./Toast";
-import { useKeyboardShortcuts } from "@/src/hooks/useKeyboardShortcuts";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 
 export default function ProductLibrary() {
   const { showToast } = useToast();

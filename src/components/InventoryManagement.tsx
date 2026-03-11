@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Package, AlertTriangle, Plus, Minus, History, Save, FileUp, X, ClipboardList, User, Download, Settings, DollarSign } from "lucide-react";
-import { formatCurrency, cn } from "@/src/lib/utils";
+import { formatCurrency, cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
-import { InventoryItem, InventoryTransaction, MaterialRequisition, InventoryValuationConfig, InventoryTransactionV7 } from "@/src/types";
+import { InventoryItem, InventoryTransaction, MaterialRequisition, InventoryValuationConfig, InventoryTransactionV7 } from "@/types";
 import { useToast } from "./Toast";
-import { useKeyboardShortcuts } from "@/src/hooks/useKeyboardShortcuts";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 
 export default function InventoryManagement() {
   const { showToast } = useToast();

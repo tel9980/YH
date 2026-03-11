@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { TrendingUp, TrendingDown, AlertTriangle, Calendar, Package, DollarSign, BarChart3 } from "lucide-react";
-import { formatCurrency, cn } from "@/src/lib/utils";
-import { CostVariance as CostVarianceType, Product } from "@/src/types";
+import { formatCurrency, cn } from "@/lib/utils";
+import { CostVariance as CostVarianceType, Product } from "@/types";
 import { useToast } from "./Toast";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 

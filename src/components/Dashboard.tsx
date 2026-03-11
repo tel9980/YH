@@ -66,6 +66,7 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
   const [workerLeaderboard, setWorkerLeaderboard] = useState<any[]>([]);
   const [inventoryValuation, setInventoryValuation] = useState<number>(0);
   const [creditAlerts, setCreditAlerts] = useState<any[]>([]);
+  const [costVarianceAlerts, setCostVarianceAlerts] = useState<any[]>([]);
   const [lowStock, setLowStock] = useState<any[]>([]);
   const [productionSummary, setProductionSummary] = useState<any[]>([]);
   const [dupont, setDupont] = useState<any>(null);
@@ -105,6 +106,18 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
         setLowStock(lowStockRes);
         setProductionSummary(prodRes);
         setDupont(dupontRes);
+
+        // Fetch cost variance alerts
+        try {
+          const variancesRes = await fetch("/api/v7/cost-variances");
+          if (variancesRes.ok) {
+            const variances = await variancesRes.json();
+            const alerts = variances.filter((v: any) => Math.abs(v.variance_rate) > 10 && !v.processed);
+            setCostVarianceAlerts(alerts);
+          }
+        } catch (err) {
+          // Cost variance API might not be available yet
+        }
       } catch (e) {
         showToast("加载数据失败", "error");
       } finally {
@@ -449,6 +462,44 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
               </div>
             )}
           </div>
+        </div>
+
+        {/* Cost Variance Alerts */}
+        <div className="lg:col-span-1 bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 transition-colors duration-300">
+          <h3 className="text-lg font-semibold mb-6 flex items-center dark:text-slate-100">
+            <TrendingUp className="mr-2 text-amber-500" size={20} />
+            成本差异预警
+          </h3>
+          <div className="space-y-4">
+            {costVarianceAlerts.map((alert, i) => (
+              <div key={i} className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-100 dark:border-amber-900/30">
+                <div className="flex justify-between items-start mb-1">
+                  <span className="text-sm font-bold text-slate-800 dark:text-slate-200">产品 #{alert.product_id}</span>
+                  <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 rounded font-bold uppercase">
+                    {alert.variance_rate >= 0 ? '+' : ''}{alert.variance_rate.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-slate-500 dark:text-slate-400">期间: {alert.period}</span>
+                  <span className="text-slate-500 dark:text-slate-400">差异: {formatCurrency(alert.total_variance)}</span>
+                </div>
+              </div>
+            ))}
+            {costVarianceAlerts.length === 0 && (
+              <div className="text-center py-12 text-slate-400 italic">
+                <ShieldCheck size={48} className="mx-auto mb-4 opacity-20 text-emerald-500" />
+                成本控制良好
+              </div>
+            )}
+          </div>
+          {costVarianceAlerts.length > 0 && (
+            <button 
+              onClick={() => setActiveTab("cost-variance")}
+              className="w-full mt-4 py-2 text-xs font-medium text-amber-600 hover:text-amber-700 transition-colors border-t border-slate-100 dark:border-slate-800 pt-4"
+            >
+              查看详细分析 →
+            </button>
+          )}
         </div>
       </div>
 

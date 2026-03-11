@@ -10,18 +10,21 @@ export default function FixedAssets() {
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newAsset, setNewAsset] = useState({
+    asset_no: "",
     name: "",
+    category: "机器设备",
     acquisition_date: new Date().toISOString().split('T')[0],
     cost: "",
-    depreciation_method: "直线法",
-    useful_life: "5",
-    salvage_value: "0"
+    depreciation_method: "straight_line",
+    useful_life: "60", // 5 years = 60 months
+    salvage_value: "0",
+    department_id: ""
   });
 
   const fetchAssets = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/fixed-assets");
+      const res = await fetch("/api/v7/fixed-assets");
       const data = await res.json();
       setAssets(data);
     } catch (e) {
@@ -38,26 +41,30 @@ export default function FixedAssets() {
   const handleAddAsset = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch("/api/fixed-assets", {
+      const res = await fetch("/api/v7/fixed-assets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...newAsset,
           cost: parseFloat(newAsset.cost),
           useful_life: parseInt(newAsset.useful_life),
-          salvage_value: parseFloat(newAsset.salvage_value)
+          salvage_value: parseFloat(newAsset.salvage_value),
+          department_id: newAsset.department_id ? parseInt(newAsset.department_id) : null
         })
       });
       if (res.ok) {
         showToast("固定资产添加成功", "success");
         setShowAddForm(false);
         setNewAsset({
+          asset_no: "",
           name: "",
+          category: "机器设备",
           acquisition_date: new Date().toISOString().split('T')[0],
           cost: "",
-          depreciation_method: "直线法",
-          useful_life: "5",
-          salvage_value: "0"
+          depreciation_method: "straight_line",
+          useful_life: "60",
+          salvage_value: "0",
+          department_id: ""
         });
         fetchAssets();
       }
@@ -69,7 +76,7 @@ export default function FixedAssets() {
   const handleDelete = async (id: number) => {
     if (!confirm("确定要删除该固定资产吗？")) return;
     try {
-      const res = await fetch(`/api/fixed-assets/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/v7/fixed-assets/${id}`, { method: "DELETE" });
       if (res.ok) {
         showToast("已删除", "success");
         fetchAssets();
@@ -79,19 +86,13 @@ export default function FixedAssets() {
     }
   };
 
-  const calculateDepreciation = (asset: FixedAsset) => {
-    const today = new Date();
-    const start = new Date(asset.acquisition_date);
-    const monthsPassed = (today.getFullYear() - start.getFullYear()) * 12 + (today.getMonth() - start.getMonth());
-    
-    if (monthsPassed <= 0) return { accumulated: 0, netValue: asset.cost };
-    
-    const monthlyDepreciation = (asset.cost - asset.salvage_value) / (asset.useful_life * 12);
-    const accumulated = Math.min(monthlyDepreciation * monthsPassed, asset.cost - asset.salvage_value);
-    return {
-      accumulated,
-      netValue: asset.cost - accumulated
-    };
+  const getDepreciationMethodLabel = (method: string) => {
+    switch (method) {
+      case 'straight_line': return '平均年限法 (直线法)';
+      case 'double_declining': return '双倍余额递减法';
+      case 'sum_of_years': return '年数总和法';
+      default: return method;
+    }
   };
 
   return (
@@ -99,7 +100,7 @@ export default function FixedAssets() {
       <div className="flex items-center justify-between">
         <div className="flex items-center text-indigo-600 dark:text-indigo-400">
           <Building2 className="mr-3" size={28} />
-          <h3 className="text-2xl font-bold">固定资产管理</h3>
+          <h3 className="text-2xl font-bold">固定资产管理 (专业合规版)</h3>
         </div>
         <button 
           onClick={() => setShowAddForm(!showAddForm)}
@@ -112,7 +113,17 @@ export default function FixedAssets() {
 
       {showAddForm && (
         <form onSubmit={handleAddAsset} className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 animate-in slide-in-from-top-4 duration-300">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase mb-2">资产编号</label>
+              <input 
+                type="text" 
+                value={newAsset.asset_no}
+                onChange={e => setNewAsset({...newAsset, asset_no: e.target.value})}
+                placeholder="自动生成"
+                className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 dark:text-slate-100"
+              />
+            </div>
             <div>
               <label className="block text-xs font-bold text-slate-400 uppercase mb-2">资产名称</label>
               <input 
@@ -123,6 +134,20 @@ export default function FixedAssets() {
                 placeholder="如：阳极氧化生产线"
                 className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 dark:text-slate-100"
               />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase mb-2">资产类别</label>
+              <select 
+                value={newAsset.category}
+                onChange={e => setNewAsset({...newAsset, category: e.target.value})}
+                className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 dark:text-slate-100"
+              >
+                <option value="机器设备">机器设备</option>
+                <option value="运输工具">运输工具</option>
+                <option value="电子设备">电子设备</option>
+                <option value="房屋建筑物">房屋建筑物</option>
+                <option value="管理用具">管理用具</option>
+              </select>
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-400 uppercase mb-2">购入日期</label>
@@ -146,16 +171,6 @@ export default function FixedAssets() {
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-400 uppercase mb-2">使用年限 (年)</label>
-              <input 
-                required
-                type="number" 
-                value={newAsset.useful_life}
-                onChange={e => setNewAsset({...newAsset, useful_life: e.target.value})}
-                className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 dark:text-slate-100"
-              />
-            </div>
-            <div>
               <label className="block text-xs font-bold text-slate-400 uppercase mb-2">预计净残值 (元)</label>
               <input 
                 required
@@ -166,13 +181,26 @@ export default function FixedAssets() {
               />
             </div>
             <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase mb-2">使用月数</label>
+              <input 
+                required
+                type="number" 
+                value={newAsset.useful_life}
+                onChange={e => setNewAsset({...newAsset, useful_life: e.target.value})}
+                placeholder="如：60"
+                className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 dark:text-slate-100"
+              />
+            </div>
+            <div>
               <label className="block text-xs font-bold text-slate-400 uppercase mb-2">折旧方法</label>
               <select 
                 value={newAsset.depreciation_method}
                 onChange={e => setNewAsset({...newAsset, depreciation_method: e.target.value})}
                 className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 dark:text-slate-100"
               >
-                <option value="直线法">平均年限法 (直线法)</option>
+                <option value="straight_line">平均年限法 (直线法)</option>
+                <option value="double_declining">双倍余额递减法</option>
+                <option value="sum_of_years">年数总和法</option>
               </select>
             </div>
           </div>
@@ -199,8 +227,8 @@ export default function FixedAssets() {
           <table className="w-full text-left">
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-800 text-[10px] uppercase tracking-widest font-bold text-slate-400">
-                <th className="px-6 py-4">资产名称</th>
-                <th className="px-6 py-4">购入日期</th>
+                <th className="px-6 py-4">资产信息</th>
+                <th className="px-6 py-4">购入/折旧信息</th>
                 <th className="px-6 py-4 text-right">原始成本</th>
                 <th className="px-6 py-4 text-right">累计折旧</th>
                 <th className="px-6 py-4 text-right">账面净值</th>
@@ -210,29 +238,41 @@ export default function FixedAssets() {
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {assets.map((asset) => {
-                const { accumulated, netValue } = calculateDepreciation(asset);
                 return (
                   <tr key={asset.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group">
                     <td className="px-6 py-4">
                       <div className="font-bold text-slate-800 dark:text-slate-200">{asset.name}</div>
-                      <div className="text-[10px] text-slate-400">折旧年限: {asset.useful_life}年</div>
+                      <div className="text-[10px] text-slate-400">编号: {asset.asset_no} | 类别: {asset.category}</div>
                     </td>
-                    <td className="px-6 py-4 text-sm font-mono dark:text-slate-400">{asset.acquisition_date}</td>
+                    <td className="px-6 py-4">
+                      <div className="text-sm dark:text-slate-400">{asset.acquisition_date}</div>
+                      <div className="text-[10px] text-slate-400">
+                        {getDepreciationMethodLabel(asset.depreciation_method)} | {asset.useful_life}月
+                      </div>
+                    </td>
                     <td className="px-6 py-4 text-sm text-right font-mono font-bold dark:text-slate-200">{formatCurrency(asset.cost)}</td>
-                    <td className="px-6 py-4 text-sm text-right font-mono text-rose-500">{formatCurrency(accumulated)}</td>
-                    <td className="px-6 py-4 text-sm text-right font-mono font-bold text-emerald-600">{formatCurrency(netValue)}</td>
+                    <td className="px-6 py-4 text-sm text-right font-mono text-rose-500">{formatCurrency(asset.accumulated_depreciation)}</td>
+                    <td className="px-6 py-4 text-sm text-right font-mono font-bold text-emerald-600">{formatCurrency(asset.net_book_value)}</td>
                     <td className="px-6 py-4 text-center">
-                      <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded text-[10px] font-bold">
+                      <span className={cn(
+                        "px-2 py-0.5 rounded text-[10px] font-bold",
+                        asset.status === '在用' ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400" :
+                        asset.status === '报废' ? "bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400" :
+                        "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
+                      )}>
                         {asset.status}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-center">
-                      <button 
-                        onClick={() => handleDelete(asset.id)}
-                        className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      <div className="flex justify-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button 
+                          onClick={() => handleDelete(asset.id)}
+                          title="删除"
+                          className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -253,12 +293,13 @@ export default function FixedAssets() {
         <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
           <div className="flex items-center text-amber-600 mb-4">
             <AlertCircle size={20} className="mr-2" />
-            <h4 className="font-bold">小企业会计准则提醒</h4>
+            <h4 className="font-bold">专业会计准则合规提醒</h4>
           </div>
           <ul className="text-xs text-slate-500 dark:text-slate-400 space-y-2 leading-relaxed">
-            <li>1. 固定资产应当按月计提折旧，当月增加的固定资产，当月不计提折旧，从下月起计提。</li>
-            <li>2. 系统采用平均年限法（直线法）自动计算，公式：月折旧额 = (原值 - 净残值) / 折旧年限 / 12。</li>
-            <li>3. 建议至少每年进行一次固定资产盘点，确保账实相符。</li>
+            <li>1. **计提时点**：固定资产应当按月计提折旧，当月增加的固定资产，当月不计提折旧，从下月起计提；当月减少的固定资产，当月仍计提折旧，从下月起不计提。</li>
+            <li>2. **计提基数**：系统自动根据设置的折旧方法（直线法、双倍余额递减法、年数总和法）在月末结账时自动生成计提凭证。</li>
+            <li>3. **折旧费分配**：管理用具的折旧计入管理费用，生产设备的折旧计入制造费用并参与成本分配。</li>
+            <li>4. **提足折旧**：固定资产提足折旧后，不论能否继续使用，均不再计提折旧。提前报废的固定资产，也不再补提折旧。</li>
           </ul>
         </div>
       </div>

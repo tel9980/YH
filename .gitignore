@@ -1,8 +1,13 @@
 node_modules/
 build/
 dist/
+release/
+uploads/
 coverage/
 .DS_Store
 *.log
+*.db
+*.db-journal
 .env*
 !.env.example
+.opencode

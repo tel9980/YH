@@ -9,11 +9,12 @@ files:
       - electron-main.cjs
       - server.ts
       - package.json
-      - node_modules/**/*
+electronVersion: 31.0.0
 win:
-  target: portable
-  icon: public/icon.ico
+  target:
+    - target: portable
+      arch:
+        - x64
 asar: true
 asarUnpack:
   - node_modules/better-sqlite3
-electronVersion: 40.8.0

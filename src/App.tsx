@@ -19,6 +19,10 @@ import Accounts from "./components/Accounts";
 import Vouchers from "./components/Vouchers";
 import CashJournal from "./components/Journal";
 import ClosingManagement from "./components/ClosingManagement";
+import ClosingProcess from "./pages/Closing/ClosingProcess";
+import ProductCost from "./components/ProductCost";
+import ProductionOrders from "./components/ProductionOrders";
+import CostVariance from "./components/CostVariance";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -38,8 +42,11 @@ export default function App() {
       case "accounts": return <Accounts />;
       case "inventory": return <InventoryManagement />;
       case "archive": return <Archive />;
-      case "closing": return <ClosingManagement />;
+      case "closing": return <ClosingProcess />;
       case "reports": return <Reports />;
+      case "product-cost": return <ProductCost />;
+      case "production-orders": return <ProductionOrders />;
+      case "cost-variance": return <CostVariance />;
       case "ai": return <AIAssistant />;
       case "backup": return <Backup />;
       case "settings": return <Settings />;

@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Package, AlertTriangle, Plus, Minus, History, Save, FileUp, X, ClipboardList, User, Download } from "lucide-react";
+import { Package, AlertTriangle, Plus, Minus, History, Save, FileUp, X, ClipboardList, User, Download, Settings, DollarSign } from "lucide-react";
 import { formatCurrency, cn } from "@/src/lib/utils";
 import * as XLSX from "xlsx";
-import { InventoryItem, InventoryTransaction, MaterialRequisition } from "@/src/types";
+import { InventoryItem, InventoryTransaction, MaterialRequisition, InventoryValuationConfig, InventoryTransactionV7 } from "@/src/types";
 import { useToast } from "./Toast";
 import { useKeyboardShortcuts } from "@/src/hooks/useKeyboardShortcuts";
 
@@ -11,13 +11,17 @@ export default function InventoryManagement() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
   const [requisitions, setRequisitions] = useState<MaterialRequisition[]>([]);
-  const [activeTab, setActiveTab] = useState<"inventory" | "requisitions">("inventory");
+  const [activeTab, setActiveTab] = useState<"inventory" | "requisitions" | "ledger">("inventory");
   const [loading, setLoading] = useState(true);
   const [newItem, setNewItem] = useState({ name: "", stock: 0, unit: "kg", low_threshold: 100, unit_cost: 0 });
   const [newRequisition, setNewRequisition] = useState({ item_name: "", qty: 0, worker: "", notes: "", date: new Date().toISOString().split('T')[0] });
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
   const [adjustData, setAdjustData] = useState({ delta: 0, type: "入库", notes: "" });
   const [showHistory, setShowHistory] = useState(false);
+  const [showValuationConfig, setShowValuationConfig] = useState(false);
+  const [valuationConfig, setValuationConfig] = useState<InventoryValuationConfig | null>(null);
+  const [ledgerData, setLedgerData] = useState<InventoryTransactionV7[]>([]);
+  const [selectedLedgerItem, setSelectedLedgerItem] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Keyboard shortcuts
@@ -58,10 +62,31 @@ export default function InventoryManagement() {
     }
   };
 
+  const fetchValuationConfig = async () => {
+    try {
+      const res = await fetch("/api/v7/inventory/valuation-config");
+      const data = await res.json();
+      setValuationConfig(data);
+    } catch (err) {
+      // Silent error - v7 API might not be available yet
+    }
+  };
+
+  const fetchLedger = async (itemId: number) => {
+    try {
+      const res = await fetch(`/api/v7/inventory/${itemId}/ledger`);
+      const data = await res.json();
+      setLedgerData(data.transactions || []);
+    } catch (err) {
+      showToast("获取库存明细账失败", "error");
+    }
+  };
+
   useEffect(() => {
     fetchInventory();
     fetchTransactions();
     fetchRequisitions();
+    fetchValuationConfig();
   }, []);
 
   const handleAddProduct = async (e: React.FormEvent) => {
@@ -132,6 +157,57 @@ export default function InventoryManagement() {
     }
   };
 
+  const handleUpdateValuationMethod = async (method: string) => {
+    try {
+      const res = await fetch("/api/v7/inventory/valuation-config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ method, userId: "system" })
+      });
+      if (res.ok) {
+        showToast("库存计价方法已更新", "success");
+        fetchValuationConfig();
+        setShowValuationConfig(false);
+      } else {
+        showToast("更新失败", "error");
+      }
+    } catch (e) {
+      showToast("网络错误", "error");
+    }
+  };
+
+  const handleCostAdjustment = async (itemId: number, newUnitCost: number, notes: string) => {
+    try {
+      const item = items.find(i => i.id === itemId);
+      if (!item) return;
+
+      // Update the unit cost in the inventory table
+      const res = await fetch(`/api/inventory/${itemId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ unit_cost: newUnitCost })
+      });
+
+      if (res.ok) {
+        // Record the adjustment transaction
+        await fetch(`/api/inventory/${itemId}/stock`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ delta: 0, type: "成本调整", notes: `成本调整: ${notes}` })
+        });
+
+        showToast("成本调整成功", "success");
+        fetchInventory();
+        fetchTransactions();
+        setSelectedItem(null);
+      } else {
+        showToast("调整失败", "error");
+      }
+    } catch (e) {
+      showToast("网络错误", "error");
+    }
+  };
+
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -196,9 +272,25 @@ export default function InventoryManagement() {
             >
               领料单
             </button>
+            <button 
+              onClick={() => setActiveTab("ledger")}
+              className={cn(
+                "px-4 py-1.5 rounded-lg text-sm font-medium transition-all",
+                activeTab === "ledger" ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm" : "text-slate-500 dark:text-slate-400"
+              )}
+            >
+              库存明细账
+            </button>
           </div>
         </div>
         <div className="flex items-center space-x-3">
+          <button 
+            onClick={() => setShowValuationConfig(true)}
+            className="flex items-center px-4 py-2 bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-100 dark:border-emerald-800 rounded-lg text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors"
+          >
+            <Settings size={16} className="mr-2" />
+            计价方法配置
+          </button>
           <button 
             onClick={() => setShowHistory(true)}
             className="flex items-center px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
@@ -379,7 +471,7 @@ export default function InventoryManagement() {
             </div>
           </div>
         </div>
-      ) : (
+      ) : activeTab === "requisitions" ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-1">
             <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 transition-colors duration-300">
@@ -513,6 +605,217 @@ export default function InventoryManagement() {
             </div>
           </div>
         </div>
+      ) : (
+        // Ledger Tab
+        <div className="space-y-6">
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800">
+            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-4 flex items-center">
+              <DollarSign className="mr-2 text-indigo-600 dark:text-indigo-400" size={20} />
+              选择库存项目查看明细账
+            </h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {items.map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setSelectedLedgerItem(item.id);
+                    fetchLedger(item.id);
+                  }}
+                  className={cn(
+                    "p-4 rounded-xl border-2 transition-all text-left",
+                    selectedLedgerItem === item.id
+                      ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30"
+                      : "border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700"
+                  )}
+                >
+                  <div className="font-bold text-slate-800 dark:text-slate-200">{item.name}</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    库存: {item.stock} {item.unit}
+                  </div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                    单价: {formatCurrency(item.unit_cost)}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {selectedLedgerItem && ledgerData.length > 0 && (
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
+              <div className="p-6 border-b border-slate-100 dark:border-slate-800">
+                <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center">
+                  <Package className="mr-2 text-indigo-600 dark:text-indigo-400" size={20} />
+                  库存明细账 - {items.find(i => i.id === selectedLedgerItem)?.name}
+                </h3>
+                <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  计价方法: {valuationConfig?.method === 'fifo' ? '先进先出法' : 
+                            valuationConfig?.method === 'weighted_average' ? '加权平均法' : 
+                            valuationConfig?.method === 'moving_average' ? '移动加权平均法' : '个别计价法'}
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-widest font-bold border-b border-slate-100 dark:border-slate-800">
+                      <th className="px-6 py-4 font-medium">日期</th>
+                      <th className="px-6 py-4 font-medium">类型</th>
+                      <th className="px-6 py-4 text-right">数量</th>
+                      <th className="px-6 py-4 text-right">单价</th>
+                      <th className="px-6 py-4 text-right">金额</th>
+                      <th className="px-6 py-4 text-right">结存数量</th>
+                      <th className="px-6 py-4 text-right">结存金额</th>
+                      <th className="px-6 py-4">备注</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
+                    {ledgerData.map((txn) => (
+                      <tr key={txn.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                        <td className="px-6 py-4 text-sm font-mono text-slate-500 dark:text-slate-400">
+                          {txn.transaction_date}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={cn(
+                            "inline-flex px-2 py-1 rounded-full text-xs font-bold",
+                            txn.transaction_type === 'in' ? "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400" :
+                            txn.transaction_type === 'out' ? "bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400" :
+                            "bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400"
+                          )}>
+                            {txn.transaction_type === 'in' ? '入库' : txn.transaction_type === 'out' ? '出库' : '调整'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-right font-mono font-bold">
+                          {txn.transaction_type === 'out' ? '-' : '+'}{Math.abs(txn.quantity).toFixed(2)}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-right font-mono text-slate-700 dark:text-slate-300">
+                          {formatCurrency(txn.unit_cost)}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-right font-mono font-bold text-slate-800 dark:text-slate-200">
+                          {formatCurrency(txn.total_cost)}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-right font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                          {txn.balance_quantity.toFixed(2)}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                          {formatCurrency(txn.balance_cost)}
+                        </td>
+                        <td className="px-6 py-4 text-xs text-slate-500 dark:text-slate-400">
+                          {txn.notes || '-'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {selectedLedgerItem && ledgerData.length === 0 && (
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-12 text-center">
+              <p className="text-slate-400 dark:text-slate-500 italic">该库存项目暂无变动记录</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-xl flex items-start border border-amber-100 dark:border-amber-900/30">
+        <AlertTriangle size={18} className="text-amber-600 dark:text-amber-400 mr-3 mt-0.5" />
+        <div className="text-sm text-amber-700 dark:text-amber-400">
+          <p className="font-bold mb-1">库存预警说明：</p>
+          <p>当库存量低于设定的预警线时，系统会自动在首页仪表盘显示提醒，并在此清单中以红色高亮显示。请及时联系供应商采购。</p>
+        </div>
+      </div>
+
+      {/* Valuation Config Modal */}
+      {showValuationConfig && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 border border-slate-200 dark:border-slate-800">
+            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50">
+              <h3 className="text-lg font-bold dark:text-slate-100">库存计价方法配置</h3>
+              <button onClick={() => setShowValuationConfig(false)} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors dark:text-slate-400">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="space-y-3">
+                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                  当前计价方法: <span className="font-bold text-indigo-600 dark:text-indigo-400">
+                    {valuationConfig?.method === 'fifo' ? '先进先出法 (FIFO)' : 
+                     valuationConfig?.method === 'weighted_average' ? '加权平均法' : 
+                     valuationConfig?.method === 'moving_average' ? '移动加权平均法' : '个别计价法'}
+                  </span>
+                </p>
+                
+                <button
+                  onClick={() => handleUpdateValuationMethod('fifo')}
+                  className={cn(
+                    "w-full p-4 rounded-xl border-2 text-left transition-all",
+                    valuationConfig?.method === 'fifo' 
+                      ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30" 
+                      : "border-slate-200 dark:border-slate-700 hover:border-indigo-300"
+                  )}
+                >
+                  <div className="font-bold text-slate-800 dark:text-slate-200">先进先出法 (FIFO)</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    按最早入库批次的成本计算出库成本
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => handleUpdateValuationMethod('weighted_average')}
+                  className={cn(
+                    "w-full p-4 rounded-xl border-2 text-left transition-all",
+                    valuationConfig?.method === 'weighted_average' 
+                      ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30" 
+                      : "border-slate-200 dark:border-slate-700 hover:border-indigo-300"
+                  )}
+                >
+                  <div className="font-bold text-slate-800 dark:text-slate-200">加权平均法</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    按库存总金额除以总数量计算平均单价
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => handleUpdateValuationMethod('moving_average')}
+                  className={cn(
+                    "w-full p-4 rounded-xl border-2 text-left transition-all",
+                    valuationConfig?.method === 'moving_average' 
+                      ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30" 
+                      : "border-slate-200 dark:border-slate-700 hover:border-indigo-300"
+                  )}
+                >
+                  <div className="font-bold text-slate-800 dark:text-slate-200">移动加权平均法</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    每次入库后重新计算平均单价
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => handleUpdateValuationMethod('specific_identification')}
+                  className={cn(
+                    "w-full p-4 rounded-xl border-2 text-left transition-all",
+                    valuationConfig?.method === 'specific_identification' 
+                      ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30" 
+                      : "border-slate-200 dark:border-slate-700 hover:border-indigo-300"
+                  )}
+                >
+                  <div className="font-bold text-slate-800 dark:text-slate-200">个别计价法</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    按实际批次成本计价
+                  </div>
+                </button>
+              </div>
+
+              <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
+                <div className="bg-amber-50 dark:bg-amber-900/20 p-3 rounded-lg border border-amber-100 dark:border-amber-900/30">
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    <strong>注意：</strong>变更计价方法将影响后续所有库存出库成本的计算，请谨慎操作。
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-xl flex items-start border border-amber-100 dark:border-amber-900/30">
@@ -545,18 +848,31 @@ export default function InventoryManagement() {
                     <option value="入库">入库 (+)</option>
                     <option value="出库">出库 (-)</option>
                     <option value="盘点">盘点 (修正)</option>
+                    <option value="成本调整">成本调整</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase mb-2">变动数量</label>
+                  <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase mb-2">
+                    {adjustData.type === "成本调整" ? "新单价" : "变动数量"}
+                  </label>
                   <input 
                     type="number" 
+                    step="0.01"
                     value={adjustData.delta}
                     onChange={e => setAdjustData({...adjustData, delta: parseFloat(e.target.value) || 0})}
                     className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none font-mono dark:text-slate-100"
                   />
                 </div>
               </div>
+              
+              {adjustData.type === "成本调整" && (
+                <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-100 dark:border-blue-900/30">
+                  <p className="text-xs text-blue-700 dark:text-blue-400">
+                    当前单价: {formatCurrency(selectedItem.unit_cost)} → 新单价: {formatCurrency(adjustData.delta)}
+                  </p>
+                </div>
+              )}
+              
               <div>
                 <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase mb-2">备注</label>
                 <input 
@@ -564,7 +880,7 @@ export default function InventoryManagement() {
                   value={adjustData.notes}
                   onChange={e => setAdjustData({...adjustData, notes: e.target.value})}
                   className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none dark:text-slate-100"
-                  placeholder="如: 采购入库, 生产领用"
+                  placeholder="如: 采购入库, 生产领用, 成本调整原因"
                 />
               </div>
               <div className="pt-4 flex space-x-3">
@@ -576,10 +892,14 @@ export default function InventoryManagement() {
                 </button>
                 <button 
                   onClick={() => {
-                    const finalDelta = adjustData.type === "出库" ? -Math.abs(adjustData.delta) : adjustData.delta;
-                    adjustStock(selectedItem.id, finalDelta, adjustData.type, adjustData.notes);
+                    if (adjustData.type === "成本调整") {
+                      handleCostAdjustment(selectedItem.id, adjustData.delta, adjustData.notes);
+                    } else {
+                      const finalDelta = adjustData.type === "出库" ? -Math.abs(adjustData.delta) : adjustData.delta;
+                      adjustStock(selectedItem.id, finalDelta, adjustData.type, adjustData.notes);
+                    }
                   }}
-                  className="flex-1 px-4 py-2 bg-indigo-600 dark:bg-indigo-500 text-white rounded-lg font-bold hover:bg-indigo-700 dark:hover:bg-indigo-600 transition-colors"
+                  className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 transition-colors"
                 >
                   确认调整
                 </button>

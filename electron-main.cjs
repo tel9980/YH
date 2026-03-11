@@ -22,29 +22,35 @@ function createWindow() {
   // For simplicity, let's just start the server.ts using tsx or node depending on env
   
   const isDev = process.env.NODE_ENV !== 'production';
-  const serverPath = path.join(__dirname, 'server.ts');
+  const serverPath = isDev 
+    ? path.join(__dirname, 'server.ts') 
+    : path.join(__dirname, 'dist', 'server.js');
   
+  const port = 5173;
+
   if (isDev) {
+    // In dev, Vite is usually running already on 5173, but we also start our server on another port?
+    // Actually, in dev we want to hit Vite dev server.
+    mainWindow.loadURL('http://localhost:5173');
     serverProcess = spawn('npx', ['tsx', serverPath], {
       shell: true,
-      env: { ...process.env, NODE_ENV: 'development' }
+      env: { ...process.env, NODE_ENV: 'development', PORT: 3001 } // Use different port for API in dev?
     });
+    // But wait, the app is hardcoded to use /api/... which goes to the same origin.
+    // In dev, Vite proxies /api to the server.
   } else {
-    // 生产环境下，由于是打包后的，我们可能需要使用 node 直接运行或者通过 electron 运行环境
-    // 注意：在 portable 模式下，process.execPath 指向的是解压后的临时目录
+    // Production: Start the bundled server and load from it
     serverProcess = spawn(process.execPath, [serverPath], {
-      env: { ...process.env, NODE_ENV: 'production', ELECTRON_RUN_AS_NODE: '1' }
+      env: { ...process.env, NODE_ENV: 'production', ELECTRON_RUN_AS_NODE: '1', PORT: port }
+    });
+
+    serverProcess.stdout.on('data', (data) => {
+      console.log(`Server: ${data}`);
+      if (data.toString().includes(`http://localhost:${port}`)) {
+        mainWindow.loadURL(`http://localhost:${port}`);
+      }
     });
   }
-
-  serverProcess.stdout.on('data', (data) => {
-    console.log(`Server: ${data}`);
-    if (data.toString().includes('Server running on')) {
-      const portMatch = data.toString().match(/http:\/\/localhost:(\d+)/);
-      const port = portMatch ? portMatch[1] : '5173';
-      mainWindow.loadURL(`http://localhost:${port}`);
-    }
-  });
 
   serverProcess.stderr.on('data', (data) => {
     console.error(`Server Error: ${data}`);

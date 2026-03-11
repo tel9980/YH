@@ -1,0 +1,155 @@
+[
+  {
+    "id": "5101",
+    "name": "生产成本",
+    "type": "cost",
+    "category": "成本类",
+    "parent_id": null,
+    "level": 1,
+    "status": "active"
+  },
+  {
+    "id": "5101-01",
+    "name": "直接材料",
+    "type": "cost",
+    "category": "成本类",
+    "parent_id": "5101",
+    "level": 2,
+    "status": "active"
+  },
+  {
+    "id": "5101-02",
+    "name": "直接人工",
+    "type": "cost",
+    "category": "成本类",
+    "parent_id": "5101",
+    "level": 2,
+    "status": "active"
+  },
+  {
+    "id": "5101-03",
+    "name": "制造费用",
+    "type": "cost",
+    "category": "成本类",
+    "parent_id": "5101",
+    "level": 2,
+    "status": "active"
+  },
+  {
+    "id": "5101-04",
+    "name": "燃料动力",
+    "type": "cost",
+    "category": "成本类",
+    "parent_id": "5101",
+    "level": 2,
+    "status": "active"
+  },
+  {
+    "id": "5601",
+    "name": "制造费用",
+    "type": "expense",
+    "category": "费用类",
+    "parent_id": null,
+    "level": 1,
+    "status": "active"
+  },
+  {
+    "id": "5601-01",
+    "name": "间接材料",
+    "type": "expense",
+    "category": "费用类",
+    "parent_id": "5601",
+    "level": 2,
+    "status": "active"
+  },
+  {
+    "id": "5601-02",
+    "name": "间接人工",
+    "type": "expense",
+    "category": "费用类",
+    "parent_id": "5601",
+    "level": 2,
+    "status": "active"
+  },
+  {
+    "id": "5601-03",
+    "name": "折旧费",
+    "type": "expense",
+    "category": "费用类",
+    "parent_id": "5601",
+    "level": 2,
+    "status": "active"
+  },
+  {
+    "id": "5601-04",
+    "name": "修理费",
+    "type": "expense",
+    "category": "费用类",
+    "parent_id": "5601",
+    "level": 2,
+    "status": "active"
+  },
+  {
+    "id": "5601-05",
+    "name": "水电费",
+    "type": "expense",
+    "category": "费用类",
+    "parent_id": "5601",
+    "level": 2,
+    "status": "active"
+  },
+  {
+    "id": "6602-04",
+    "name": "研发支出",
+    "type": "expense",
+    "category": "费用类",
+    "parent_id": "6602",
+    "level": 2,
+    "status": "active"
+  },
+  {
+    "id": "1801",
+    "name": "长期待摊费用",
+    "type": "asset",
+    "category": "资产类",
+    "parent_id": null,
+    "level": 1,
+    "status": "active"
+  },
+  {
+    "id": "2203",
+    "name": "预收账款",
+    "type": "liability",
+    "category": "负债类",
+    "parent_id": null,
+    "level": 1,
+    "status": "active"
+  },
+  {
+    "id": "1123",
+    "name": "预付账款",
+    "type": "asset",
+    "category": "资产类",
+    "parent_id": null,
+    "level": 1,
+    "status": "active"
+  },
+  {
+    "id": "222101",
+    "name": "应交增值税-进项税额",
+    "type": "liability",
+    "category": "负债类",
+    "parent_id": "2221",
+    "level": 2,
+    "status": "active"
+  },
+  {
+    "id": "222102",
+    "name": "应交增值税-销项税额",
+    "type": "liability",
+    "category": "负债类",
+    "parent_id": "2221",
+    "level": 2,
+    "status": "active"
+  }
+]
